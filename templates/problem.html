@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>问题 #{{ r.problem.num }} 分析</title>
+<style>
+:root{--bg:#0f172a;--card:#1e293b;--border:#334155;--text:#e2e8f0;--text2:#94a3b8;--red:#ef4444;--green:#22c55e;--yellow:#eab308;--blue:#38bdf8}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;padding:24px;max-width:1100px;margin:0 auto}
+h1{font-size:22px;margin-bottom:4px}
+.sub{color:var(--text2);font-size:13px;margin-bottom:20px}
+.back{color:var(--blue);text-decoration:none;font-size:13px}
+.card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:14px}
+.card h3{font-size:15px;margin-bottom:10px;color:var(--blue)}
+.meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:8px}
+.meta-item{background:#16213a;border:1px solid var(--border);border-radius:8px;padding:10px}
+.meta-item .k{font-size:11px;color:var(--text2)}
+.meta-item .v{font-size:14px;font-weight:600;margin-top:2px}
+.tag{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;margin:1px}
+.tag-scene{background:rgba(56,189,248,.15);color:var(--blue)}
+.tag-hit{background:rgba(234,179,8,.15);color:var(--yellow)}
+.event{background:#16213a;border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:10px}
+.ev-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+.ev-idx{background:#334155;color:var(--yellow);font-weight:700;border-radius:6px;padding:2px 8px}
+.ev-time{font-weight:700;color:var(--yellow);font-size:14px}
+.et{font-size:11px;padding:2px 8px;border-radius:10px;background:rgba(239,68,68,.15);color:var(--red);font-weight:600;margin-right:4px}
+.check{margin-top:8px;padding:6px 10px;background:rgba(56,189,248,.08);border-left:3px solid var(--blue);border-radius:4px;font-size:12px}
+.check .c{color:var(--yellow);font-weight:700}
+.check .r{color:var(--text2);margin-left:6px}
+.frames3{display:flex;gap:8px;flex-wrap:wrap}
+.frame{flex:1;min-width:200px;max-width:320px;text-align:center;vertical-align:top}
+.frame img{width:100%;border-radius:8px;border:1px solid var(--border)}
+.frame .cap{font-size:11px;color:var(--text2);margin-top:4px}
+.frame .clr{font-size:10px;color:var(--green)}
+.nodata{background:#243349;border:1px dashed var(--border);border-radius:8px;padding:20px;text-align:center;color:var(--text2)}
+.ev-collapsed{display:none}.btn{background:var(--blue);color:#fff;border:none;padding:8px 16px;border-radius:8px;font-size:13px;cursor:pointer;text-decoration:none;display:inline-block}
+.nav-top{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+.nav-top .btn{padding:8px 16px}
+.btn.gray{background:#334155}
+.nav-pos{color:var(--text2);font-size:13px;font-weight:600}
+/* 左右固定悬浮翻页按钮 */
+.nav-fixed{position:fixed;top:50%;transform:translateY(-50%);width:52px;height:52px;border-radius:50%;background:var(--blue);color:#fff;font-size:22px;display:flex;align-items:center;justify-content:center;text-decoration:none;box-shadow:0 4px 16px rgba(0,0,0,.4);z-index:100;opacity:.9;transition:opacity .2s,transform .2s}
+.nav-fixed:hover{opacity:1;transform:translateY(-50%) scale(1.1)}
+.nav-left{left:12px}
+.nav-right{right:12px}
+</style>
+</head>
+<body>
+<div id="loading" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(15,23,42,.92);z-index:999;display:flex;flex-direction:column;align-items:center;justify-content:center">
+  <div style="font-size:40px;margin-bottom:16px">🔄</div>
+  <div style="font-size:18px;font-weight:600">正在分析该问题...</div>
+  <div style="font-size:13px;color:var(--text2);margin-top:8px">首次分析需读取视频抽帧, 约几秒~几十秒</div>
+</div>
+<!-- 左右固定悬浮导航 -->
+{% if prev_num %}<a href="/problem/{{ prev_num }}" class="nav-fixed nav-left" title="上一个问题 #{{ prev_num }}">⬅</a>{% endif %}
+{% if next_num %}<a href="/problem/{{ next_num }}" class="nav-fixed nav-right" title="下一个问题 #{{ next_num }}">➡</a>{% endif %}
+<div class="nav-top">
+  <a href="/" class="btn gray">← 列表</a>
+  <span class="nav-pos">问题 {{ cur_idx }} / {{ total_nums }}</span>
+</div>
+<h1>问题 #{{ r.problem.num }} 深度分析</h1>
+<div class="sub">{{ r.problem.date }} {{ r.problem.tstr }} · 生成于 {{ now }}</div>
+
+<div class="card">
+  <h3>📋 基本信息</h3>
+  <div class="meta">
+    <div class="meta-item"><div class="k">问题归类</div><div class="v">{{ r.problem.cat }}</div></div>
+    <div class="meta-item"><div class="k">环境</div><div class="v">{{ r.problem.env or '-' }}</div></div>
+    <div class="meta-item"><div class="k">CSV数据</div><div class="v">{{ '✅ ' ~ r.csv if r.csv_ok else '❌ 未定位' }}</div></div>
+    <div class="meta-item"><div class="k">视频</div><div class="v">{{ '✅ ' ~ r.video if r.video_ok else '❌ 未定位' }}</div></div>
+    <div class="meta-item"><div class="k">检出错误点</div><div class="v">{{ r.points|length }} 个</div></div>
+  </div>
+  {% if r.problem.scenes %}
+  <div style="margin-top:8px">
+    {% for s in r.problem.scenes %}<span class="tag tag-scene">{{ s }}</span>{% endfor %}
+  </div>
+  {% endif %}
+  <p style="margin-top:10px;font-size:13px;color:var(--text2)">{{ r.problem.desc }}</p>
+</div>
+
+<div class="card">
+  <h3>🔍 错误点与双维度校验</h3>
+  {% if not r.points %}
+    <div class="nodata">✅ 该问题 ±{{ 30 }}s 窗口内未检出异常</div>
+  {% else %}
+    {% for pt in r.points[:10] %}
+    <div class="event {% if loop.index > 3 %}ev-collapsed{% endif %}">
+      <div class="ev-head">
+        <span class="ev-idx">b{{ loop.index }}</span>
+        <span class="ev-time">⏱ {{ pt.sec|hms }}</span>
+        {% for lb in pt.labels %}<span class="et">{{ lb }}</span>{% endfor %}
+      </div>
+      {% if pt.check_concl %}
+      <div class="check"><b>双维度校验:</b> <span class="c">{{ pt.check_concl }}</span><span class="r">{{ pt.check_reason }}</span></div>
+      {% endif %}
+      {% if pt.frames %}
+      <div class="frames3">
+        {% for fr in pt.frames %}
+        <div class="frame">
+          <img src="data:image/jpeg;base64,{{ fr.b64 }}" loading="lazy">
+          <div class="cap">{{ 'b1-1s' if fr.delta == -1 else ('b1' if fr.delta == 0 else 'b1+1s') }} (帧{{ fr.frame_idx }})</div>
+          <div class="clr">S={{ fr.S }} (L{{ fr.L }}/E{{ fr.E }}/C{{ fr.C }}/B{{ fr.B }}/F{{ fr.F }})</div>
+          {% if fr.det_w %}<div class="clr">画面宽 {{ fr.det_w }}m</div>{% endif %}
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="nodata" style="padding:10px">📭 无视频帧</div>
+      {% endif %}
+    </div>
+    {% endfor %}
+    {% if r.points|length > 10 %}<p style="color:var(--text2);font-size:12px;margin-top:8px">… 还有 {{ r.points|length - 10 }} 个错误点未显示</p>{% endif %}
+    {% if r.points|length > 3 %}<div style="text-align:center;margin-top:10px"><button class="btn" onclick="toggleAll()" id="toggleBtn">展开全部 {{ r.points[:10]|length }} 个错误点</button></div>{% endif %}
+  {% endif %}
+</div>
+
+<p><a href="/" class="btn">← 返回列表</a></p>
+<script>
+// 展开/折叠全部错误点
+let allExpanded = false;
+function toggleAll() {
+  allExpanded = !allExpanded;
+  document.querySelectorAll('.ev-collapsed').forEach(el => { el.style.display = allExpanded ? '' : 'none'; });
+  document.getElementById('toggleBtn').textContent = allExpanded ? '收起多余错误点' : '展开全部错误点';
+}
+</script>
+<script>
+window.addEventListener('load', () => {
+  document.getElementById('loading').style.display = 'none';
+});
+</script>
+</body>
+</html>

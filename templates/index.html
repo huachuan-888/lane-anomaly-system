@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>车道线异常智能归因系统</title>
+<style>
+:root{--bg:#0f172a;--card:#1e293b;--border:#334155;--text:#e2e8f0;--text2:#94a3b8;--red:#ef4444;--green:#22c55e;--yellow:#eab308;--blue:#38bdf8}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;padding:24px;max-width:1200px;margin:0 auto}
+h1{font-size:24px;margin-bottom:4px}
+.sub{color:var(--text2);font-size:13px;margin-bottom:24px}
+.stats{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:24px}
+.stat{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px 20px;min-width:130px}
+.stat .n{font-size:26px;font-weight:700}
+.stat .l{font-size:12px;color:var(--text2)}
+.actions{display:flex;gap:10px;margin-bottom:24px}
+.btn{background:var(--blue);color:#fff;border:none;padding:10px 20px;border-radius:8px;font-size:14px;cursor:pointer;font-weight:600}
+.btn:hover{opacity:.85}
+.btn.green{background:var(--green)}
+.btn.gray{background:#334155}
+table{width:100%;border-collapse:collapse;background:var(--card);border-radius:10px;overflow:hidden;font-size:13px}
+th,td{padding:10px 12px;border-bottom:1px solid var(--border);text-align:left}
+th{background:#243349;font-weight:600;white-space:nowrap}
+tr:hover{background:#243349}
+.tag{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;margin:1px}
+.tag-lane{background:rgba(56,189,248,.15);color:var(--blue)}
+.tag-snake{background:rgba(239,68,68,.15);color:var(--red)}
+.tag-scene{background:rgba(148,163,184,.2);color:var(--text2)}
+a{color:var(--blue);text-decoration:none}
+a:hover{text-decoration:underline}
+.center{text-align:center;color:var(--text2);padding:40px}
+#logBox{background:#0b1220;border:1px solid var(--border);border-radius:8px;padding:12px;font-size:12px;white-space:pre-wrap;max-height:300px;overflow-y:auto;display:none;color:#7dd3fc}
+</style>
+</head>
+<body>
+<h1>🚗 车道线异常智能归因系统</h1>
+<div class="sub">D760 王者6x4 自主一代 L2+ 智驾项目 · 问题列表驱动 · CSV+视频双维度校验</div>
+
+<div class="stats">
+  <div class="stat"><div class="n">{{ total }}</div><div class="l">问题总数</div></div>
+  <div class="stat"><div class="n" style="color:var(--blue)">{{ lane_q }}</div><div class="l">车道线相关问题</div></div>
+  <div class="stat"><div class="n" style="color:var(--green)">{{ lane_q - snake_q }}</div><div class="l">纯车道线异常</div></div>
+  <div class="stat"><div class="n" style="color:var(--red)">{{ snake_q }}</div><div class="l">蛇形问题</div></div>
+</div>
+
+<div class="actions">
+  <button class="btn" onclick="location.href='/problem/1'">🔍 单问题分析</button>
+  <button class="btn green" onclick="runAll()">⚡ 一键自动复核</button>
+  <button class="btn gray" onclick="window.open('file:///C:/Users/黄钦/Desktop/DF资料/ai 车道线分析/自动复核输出/reports/错误点复核报告.html')">📄 查看最新报告</button>
+</div>
+<div id="logBox"></div>
+
+<h2 style="font-size:16px;margin:20px 0 10px;color:var(--blue)">📋 问题列表 ({{ total }})</h2>
+<table>
+<thead><tr>
+  <th>#</th><th>日期</th><th>时间</th><th>问题归类</th><th>场景</th><th>问题描述</th><th>操作</th>
+</tr></thead>
+<tbody>
+{% for p in problems %}
+<tr>
+  <td><b>{{ p.num }}</b></td>
+  <td>{{ p.date }}</td>
+  <td>{{ p.tstr }}</td>
+  <td>{{ p.cat[:14] }}</td>
+  <td>
+    {% for s in p.scenes %}<span class="tag tag-scene">{{ s }}</span>{% endfor %}
+    {% if p.hits %}
+      {% if '蛇形' in p.hits %}<span class="tag tag-snake">蛇形</span>{% endif %}
+      {% if '车道线' in p.hits %}<span class="tag tag-lane">车道线</span>{% endif %}
+    {% endif %}
+  </td>
+  <td style="color:var(--text2)">{{ p.desc[:45] }}{% if p.desc|length > 45 %}...{% endif %}</td>
+  <td><a href="/problem/{{ p.num }}">分析详情 →</a></td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+
+<script>
+function runAll() {
+  const box = document.getElementById('logBox');
+  box.style.display = 'block';
+  box.textContent = '⚡ 开始一键自动复核... (约2分钟)\n';
+  fetch('/api/run_all')
+    .then(r => r.json())
+    .then(d => {
+      box.textContent += '\n' + (d.log || '');
+      box.textContent += d.ok ? '\n\n✅ 复核完成! 可查看最新报告' : '\n\n❌ 运行出错';
+    })
+    .catch(e => box.textContent += '\n❌ 请求失败: ' + e);
+}
+</script>
+</body>
+</html>
