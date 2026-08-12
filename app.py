@@ -17,6 +17,7 @@ import datetime
 
 import openpyxl
 from flask import Flask, render_template, request, jsonify, send_from_directory
+from werkzeug.utils import secure_filename
 
 # ==================== 路径配置 ====================
 BASE = r"C:\Users\黄钦\Desktop\DF资料\ai 车道线分析"
@@ -187,6 +188,82 @@ def api_problems():
         "cat": p["cat"], "desc": p["desc"][:50],
         "hits": p["hits"], "scenes": p["scenes"],
     } for p in problems])
+
+
+# ==================== 文件上传 ====================
+ALLOWED_XLSX = {"xlsx", "xlsm"}
+ALLOWED_CSV = {"csv"}
+ALLOWED_VIDEO = {"ts", "mp4", "avi", "mkv"}
+
+
+def allowed_file(filename, allowed_set):
+    return "." in filename and filename.rsplit(".", 1)[1].lower() in allowed_set
+
+
+@app.route("/api/upload", methods=["POST"])
+def api_upload():
+    """接收上传文件, 保存到对应目录"""
+    results = {"uploaded": [], "errors": []}
+    ftype = request.form.get("type", "")
+    files = request.files
+    if ftype == "xlsx":
+        target_dir = BASE
+        allowed = ALLOWED_XLSX
+    elif ftype == "csv":
+        target_dir = CSV_DIR
+        allowed = ALLOWED_CSV
+    elif ftype == "video":
+        target_dir = VIDEO_DIR
+        allowed = ALLOWED_VIDEO
+    else:
+        return jsonify({"ok": False, "error": "未知上传类型"}), 400
+
+    for key, f in files.items():
+        if not f or f.filename == "":
+            continue
+        if not allowed_file(f.filename, allowed):
+            results["errors"].append(f"{f.filename}: 文件类型不支持")
+            continue
+        fname = secure_filename(f.filename)
+        try:
+            if ftype == "video":
+                # 视频按日期子文件夹归档: 检查问题表里该时刻属于哪一天
+                save_path = os.path.join(target_dir, fname)
+                # 先存根目录, 若能从问题表匹配到日期则移动
+                f.save(save_path)
+                # 尝试从问题表时间匹配日期 (视频时间戳 -> 问题表日期)
+                tstr = re.search(r"ND\d{5}_(\d{6})", fname)
+                if tstr:
+                    vsec = hms_to_sec(int(tstr.group(1)))
+                    target_date = None
+                    for p in cached_problems():
+                        if p["sec"] is not None and abs(p["sec"] - vsec) < 120:
+                            target_date = p["date"]
+                            break
+                    if target_date:
+                        for folder, fdate in CONFIG["video_date_map"].items():
+                            if fdate == target_date:
+                                fdir = os.path.join(target_dir, folder)
+                                os.makedirs(fdir, exist_ok=True)
+                                os.replace(save_path, os.path.join(fdir, fname))
+                                results["uploaded"].append(f"{folder}/{fname}")
+                                break
+                        else:
+                            results["uploaded"].append(fname)
+                    else:
+                        results["uploaded"].append(fname)
+                else:
+                    results["uploaded"].append(fname)
+            else:
+                f.save(os.path.join(target_dir, fname))
+                results["uploaded"].append(fname)
+        except Exception as e:
+            results["errors"].append(f"{f.filename}: 保存失败 {e}")
+
+    # 上传后清理缓存, 让新文件生效
+    _problems_cache["data"] = None
+    _analysis_cache.clear()
+    return jsonify({"ok": True, **results})
 
 
 @app.route("/api/run_all")

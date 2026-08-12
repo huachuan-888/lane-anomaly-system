@@ -14,6 +14,15 @@ h1{font-size:24px;margin-bottom:4px}
 .stat{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px 20px;min-width:130px}
 .stat .n{font-size:26px;font-weight:700}
 .stat .l{font-size:12px;color:var(--text2)}
+.upload-section{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:20px}
+.upload-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+@media(max-width:700px){.upload-grid{grid-template-columns:1fr}}
+.upload-box{border:2px dashed var(--border);border-radius:10px;padding:18px;text-align:center;cursor:pointer;transition:all .2s}
+.upload-box:hover{border-color:var(--blue);background:rgba(56,189,248,.05)}
+.upload-box.dragover{border-color:var(--green);background:rgba(34,197,94,.1)}
+.ub-icon{font-size:28px;margin-bottom:6px}
+.ub-title{font-size:14px;font-weight:600;margin-bottom:4px}
+.ub-hint{font-size:12px;color:var(--text2)}
 .actions{display:flex;gap:10px;margin-bottom:24px}
 .btn{background:var(--blue);color:#fff;border:none;padding:10px 20px;border-radius:8px;font-size:14px;cursor:pointer;font-weight:600}
 .btn:hover{opacity:.85}
@@ -44,6 +53,31 @@ a:hover{text-decoration:underline}
   <div class="stat"><div class="n" style="color:var(--red)">{{ snake_q }}</div><div class="l">蛇形问题</div></div>
 </div>
 
+<!-- 上传文件区块 -->
+<div class="upload-section">
+  <h2 style="font-size:16px;margin-bottom:12px;color:var(--blue)">📤 上传分析文件</h2>
+  <div class="upload-grid">
+    <div class="upload-box" id="box-xlsx" onclick="document.getElementById('file-xlsx').click()">
+      <div class="ub-icon">📋</div>
+      <div class="ub-title">问题表 (xlsx)</div>
+      <div class="ub-hint">点击选择或拖拽</div>
+      <input type="file" id="file-xlsx" accept=".xlsx,.xlsm" multiple style="display:none" onchange="uploadFiles('xlsx', this.files)">
+    </div>
+    <div class="upload-box" id="box-csv" onclick="document.getElementById('file-csv').click()">
+      <div class="ub-icon">📊</div>
+      <div class="ub-title">CSV 数据</div>
+      <div class="ub-hint">点击选择或拖拽</div>
+      <input type="file" id="file-csv" accept=".csv" multiple style="display:none" onchange="uploadFiles('csv', this.files)">
+    </div>
+    <div class="upload-box" id="box-video" onclick="document.getElementById('file-video').click()">
+      <div class="ub-icon">🎥</div>
+      <div class="ub-title">视频 (ts)</div>
+      <div class="ub-hint">点击选择或拖拽</div>
+      <input type="file" id="file-video" accept=".ts,.mp4,.avi,.mkv" multiple style="display:none" onchange="uploadFiles('video', this.files)">
+    </div>
+  </div>
+  <div id="uploadStatus" style="display:none;margin-top:10px;padding:10px;background:var(--card);border:1px solid var(--border);border-radius:8px;font-size:13px"></div>
+</div>
 <div class="actions">
   <button class="btn" onclick="location.href='/problem/1'">🔍 单问题分析</button>
   <button class="btn green" onclick="runAll()">⚡ 一键自动复核</button>
@@ -78,6 +112,44 @@ a:hover{text-decoration:underline}
 </table>
 
 <script>
+// ===== 文件上传 =====
+async function uploadFiles(type, files) {
+  if (!files || files.length === 0) return;
+  const status = document.getElementById('uploadStatus');
+  status.style.display = 'block';
+  status.innerHTML = `⏳ 正在上传 ${files.length} 个文件...`;
+  const fd = new FormData();
+  fd.append('type', type);
+  for (const f of files) fd.append('file', f);
+  try {
+    const resp = await fetch('/api/upload', { method: 'POST', body: fd });
+    const data = await resp.json();
+    let html = '';
+    if (data.uploaded && data.uploaded.length) {
+      html += `✅ 上传成功 ${data.uploaded.length} 个:<br>`;
+      data.uploaded.forEach(n => html += `  📄 ${n}<br>`);
+    }
+    if (data.errors && data.errors.length) {
+      html += `❌ 失败 ${data.errors.length} 个:<br>`;
+      data.errors.forEach(e => html += `  ⚠️ ${e}<br>`);
+    }
+    status.innerHTML = html + '<br><button class="btn green" onclick="location.reload()">🔄 刷新页面查看新数据</button>';
+  } catch (e) {
+    status.innerHTML = '❌ 上传失败: ' + e;
+  }
+}
+// 拖拽支持
+['xlsx','csv','video'].forEach(t => {
+  const box = document.getElementById('box-' + t);
+  if (!box) return;
+  box.addEventListener('dragover', e => { e.preventDefault(); box.classList.add('dragover'); });
+  box.addEventListener('dragleave', () => box.classList.remove('dragover'));
+  box.addEventListener('drop', e => {
+    e.preventDefault();
+    box.classList.remove('dragover');
+    uploadFiles(t, e.dataTransfer.files);
+  });
+});
 function runAll() {
   const box = document.getElementById('logBox');
   box.style.display = 'block';
