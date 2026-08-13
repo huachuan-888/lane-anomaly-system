@@ -111,7 +111,7 @@ def scene_detect(problem, cfg):
 
 def setup_dirs(base_dir):
     """建立标准输出目录结构"""
-    out_root = os.path.join(base_dir, "自动复核输出")
+    out_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "自动复核输出")
     dirs = {
         "root": out_root,
         "reports": os.path.join(out_root, "reports"),
@@ -276,6 +276,65 @@ def scan_errors(csv_path, target_sec, window):
     return result
 
 
+# ==================== 规则五: 丢失事件链 ====================
+def build_lost_chains(points):
+    """从错误点聚合丢失事件, 串成事件链
+    规则:
+      - 同一侧丢失帧间隔<=2s -> 聚合为一次丢失事件
+      - 丢失事件前<=5s内有同侧前兆 -> 标记"有前兆的丢失"
+      - 记录丢失持续时长
+    """
+    # 1. 收集所有丢失帧 (按侧)
+    lost_frames = {"左": [], "右": []}
+    for pt in points:
+        for lb in pt["labels"]:
+            if "左侧车道线丢失" in lb:
+                lost_frames["左"].append(pt["sec"])
+            elif "右侧车道线丢失" in lb:
+                lost_frames["右"].append(pt["sec"])
+
+    # 2. 收集所有前兆帧 (可视范围<30m, 按侧)
+    warning_frames = {"左": [], "右": []}
+    for pt in points:
+        for lb in pt["labels"]:
+            if "可视范围" in lb:
+                # 前兆无法区分左右(聚合丢了), 视为双侧都可能
+                warning_frames["左"].append(pt["sec"])
+                warning_frames["右"].append(pt["sec"])
+
+    chains = []
+    for side in ("左", "右"):
+        frames = sorted(lost_frames[side])
+        if not frames:
+            continue
+        # 聚合: 间隔<=2s 归为一次事件
+        events = []
+        cur = [frames[0]]
+        for i in range(1, len(frames)):
+            if frames[i] - frames[i-1] <= 2:
+                cur.append(frames[i])
+            else:
+                events.append(cur)
+                cur = [frames[i]]
+        events.append(cur)
+        # 每条事件生成链
+        for ev in events:
+            start, end = ev[0], ev[-1]
+            duration = end - start + 1  # 秒数(近似)
+            # 找前兆: 丢失开始前<=5s内
+            has_warn = any(abs(w - start) <= 5 for w in warning_frames[side])
+            chains.append({
+                "side": side,
+                "start": start,
+                "end": end,
+                "duration_s": duration,
+                "frames": len(ev),
+                "has_warning": has_warn,
+                "type": "有前兆的丢失" if has_warn else "突发丢失",
+            })
+    return chains
+
+
 # ==================== 模块4: 视频定位 ====================
 def find_video(video_dir, date_map, date, sec):
     """按日期子文件夹+文件名时间戳匹配视频"""
@@ -326,6 +385,74 @@ def frame_to_b64(frame, quality, max_w):
     return None
 
 
+# ==================== 本车道线标注 ====================
+def annotate_own_lane(frame, yolop_full_mask=None):
+    """在帧上标注当前车辆所在车道的左右线 (绿=左, 红=右)
+    策略: YOLOP掩码 -> 搜索区(0.30w~0.70w)聚类 -> 取最接近标定(0.45w/0.64w)的线簇
+    返回: (标注图, 左线x, 右线x)
+    """
+    import cv2
+    import numpy as np
+    h, w = frame.shape[:2]
+    annotated = frame.copy()
+    left_x = right_x = -1
+
+    # 获取 YOLOP 掩码 (复用检测, 避免重复推理)
+    if yolop_full_mask is None:
+        det = yolop_detect(frame)
+        if det is None or det.get("pixels", 0) == 0:
+            return annotated, -1, -1
+        # 重新跑掩码
+        sess = _yolop_session()
+        if sess is None:
+            return annotated, -1, -1
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+        img_eq = cv2.cvtColor(clahe.apply(gray), cv2.COLOR_GRAY2BGR)
+        img = cv2.cvtColor(img_eq, cv2.COLOR_BGR2RGB)
+        inp = np.transpose(cv2.resize(img, (640, 640)).astype(np.float32) / 255.0, (2, 0, 1))[None]
+        det_out, drive_seg, lane_seg = sess.run(None, {"images": inp})
+        lane_mask = np.argmax(lane_seg[0], axis=0)
+        yolop_full_mask = cv2.resize((lane_mask == 1).astype(np.uint8) * 255, (w, h), interpolation=cv2.INTER_NEAREST)
+
+    # 搜索区 (0.30w ~ 0.70w): 本车道线所在范围
+    x_lo, x_hi = int(w * 0.30), int(w * 0.70)
+    roi = yolop_full_mask[int(h * 0.55):, x_lo:x_hi]
+    col_sum = np.sum(roi > 0, axis=0)
+    xs = np.where(col_sum > 0)[0]
+    if len(xs) > 0:
+        xs = xs + x_lo
+        # 聚类 (间隔>15px 为不同线)
+        clusters = []
+        cur = [xs[0]]
+        for i in range(1, len(xs)):
+            if xs[i] - xs[i-1] > 15:
+                clusters.append(int(np.mean(cur)))
+                cur = [xs[i]]
+            else:
+                cur.append(xs[i])
+        clusters.append(int(np.mean(cur)))
+        # 取最接近标定位置的线 (左≈0.45w, 右≈0.64w)
+        ref_l, ref_r = int(w * 0.45), int(w * 0.64)
+        left_cands = [c for c in clusters if c < w // 2]
+        right_cands = [c for c in clusters if c >= w // 2]
+        if left_cands:
+            left_x = min(left_cands, key=lambda c: abs(c - ref_l))
+        if right_cands:
+            right_x = min(right_cands, key=lambda c: abs(c - ref_r))
+
+    # 画标注
+    if left_x > 0:
+        cv2.line(annotated, (left_x, int(h * 0.55)), (left_x, h), (0, 255, 0), 3)
+        cv2.putText(annotated, f"L {left_x}", (max(10, left_x - 70), int(h * 0.52)),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+    if right_x > 0:
+        cv2.line(annotated, (right_x, int(h * 0.55)), (right_x, h), (0, 0, 255), 3)
+        cv2.putText(annotated, f"R {right_x}", (min(w - 120, right_x + 10), int(h * 0.52)),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+    return annotated, left_x, right_x
+
+
 def clarity_level(S, cfg):
     """清晰度分级: 高/中/低"""
     th = cfg["clarity_threshold"]
@@ -336,8 +463,125 @@ def clarity_level(S, cfg):
     return "中", "中等"
 
 
+# ==================== YOLOP 深度学习检测 (可选, 需模型文件) ====================
+_YOLOP_SESSION = None
+_YOLOP_MODEL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models", "yolop-640-640.onnx")
+
+
+def _yolop_session():
+    """懒加载 YOLOP 模型 (只加载一次)"""
+    global _YOLOP_SESSION
+    if _YOLOP_SESSION is None and os.path.exists(_YOLOP_MODEL):
+        import onnxruntime as ort
+        _YOLOP_SESSION = ort.InferenceSession(_YOLOP_MODEL, providers=["CPUExecutionProvider"])
+    return _YOLOP_SESSION
+
+
+def yolop_detect(frame):
+    """YOLOP 语义分割检测车道线: 返回左右线位置(原图坐标)和估算宽度
+    优化: ① CLAHE增强(画面偏暗) ② 单侧互补(Hough补另一侧)
+    """
+    import cv2
+    import numpy as np
+    sess = _yolop_session()
+    if sess is None:
+        return None
+    try:
+        h, w = frame.shape[:2]
+        # ① CLAHE 增强 (画面偏暗, 增强对比度提升检测率)
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+        gray_eq = clahe.apply(gray)
+        img_eq = cv2.cvtColor(gray_eq, cv2.COLOR_GRAY2BGR)
+        img = cv2.cvtColor(img_eq, cv2.COLOR_BGR2RGB)
+        img_resized = cv2.resize(img, (640, 640))
+        inp = np.transpose(img_resized.astype(np.float32) / 255.0, (2, 0, 1))[None]
+        det_out, drive_seg, lane_seg = sess.run(None, {"images": inp})
+        lane_mask = np.argmax(lane_seg[0], axis=0)
+        lane_binary = (lane_mask == 1).astype(np.uint8) * 255
+        lane_full = cv2.resize(lane_binary, (w, h), interpolation=cv2.INTER_NEAREST)
+        roi = lane_full[int(h * 0.55):, :]
+        col_sum = np.sum(roi > 0, axis=0)
+        xs = np.where(col_sum > 0)[0]
+        if len(xs) == 0:
+            return {"left_x": -1, "right_x": -1, "left_ok": False, "right_ok": False, "width_m": None, "method": "yolop", "pixels": 0}
+        center = w // 2
+        left_xs = xs[xs < center]
+        right_xs = xs[xs >= center]
+        left_ok = len(left_xs) > 0
+        right_ok = len(right_xs) > 0
+        left_x = int(np.mean(left_xs)) if left_ok else -1
+        right_x = int(np.mean(right_xs)) if right_ok else -1
+        # ② 单侧互补: 缺失的一侧用 Hough 补
+        if left_ok != right_ok:
+            hough_side = _hough_single_side(frame, side="left" if not left_ok else "right")
+            if hough_side is not None:
+                if not left_ok:
+                    left_x, left_ok = hough_side
+                else:
+                    right_x, right_ok = hough_side
+        width_m = None
+        if left_ok and right_ok:
+            ref_px = int(w * 0.72) - int(w * 0.28)
+            width_m = 3.65 * (right_x - left_x) / ref_px if ref_px > 0 else None
+        return {"left_x": left_x, "right_x": right_x, "left_ok": left_ok, "right_ok": right_ok,
+                "width_m": width_m, "method": "yolop+hough" if (left_ok and right_ok and (left_xs.size == 0 or right_xs.size == 0)) else "yolop",
+                "pixels": int(np.sum(lane_mask == 1))}
+    except Exception:
+        return None
+
+
+def _hough_single_side(frame, side):
+    """Hough 检测单侧车道线: 返回 (x位置, 是否检出)"""
+    import cv2
+    import numpy as np
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    h, w = gray.shape
+    roi_y1 = int(h * 0.55)
+    roi = gray[roi_y1:h, int(w * 0.1):int(w * 0.9)]
+    edges = cv2.Canny(roi, 50, 150)
+    lines = cv2.HoughLinesP(edges, 1, np.pi / 180, 50, minLineLength=40, maxLineGap=50)
+    if lines is None:
+        return None
+    roi_h, roi_w = roi.shape
+    best = None
+    line_arrs = lines[:, 0] if lines.ndim == 3 else lines
+    for line in line_arrs:
+        x1, y1, x2, y2 = int(line[0]), int(line[1]), int(line[2]), int(line[3])
+        if x2 == x1:
+            continue
+        slope = (y2 - y1) / (x2 - x1)
+        length = float(np.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2))
+        if length < 30:
+            continue
+        cx = (x1 + x2) / 2 + int(w * 0.1)
+        if abs(slope) > 0.2:
+            if side == "left" and slope < -0.15 and cx < roi_w * 0.55 + int(w * 0.1):
+                if best is None or length > best[1]:
+                    best = (int(cx), length)
+            elif side == "right" and slope > 0.15 and cx > roi_w * 0.45 + int(w * 0.1):
+                if best is None or length > best[1]:
+                    best = (int(cx), length)
+    if best:
+        return (best[0], True)
+    return None
+
+
 def detect_lane_in_frame(frame):
-    """Hough检测画面中的左右车道线, 返回像素位置和估算宽度"""
+    """检测画面中的左右车道线: YOLOP优先(精确), 无模型时Hough回退"""
+    import cv2
+    import numpy as np
+    # YOLOP 优先 (语义分割, 更准)
+    yolop_res = yolop_detect(frame)
+    if yolop_res is not None and (yolop_res["left_ok"] or yolop_res["right_ok"]):
+        return yolop_res
+    # Hough 回退
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    h, w = gray.shape
+    roi_y1 = int(h * 0.55)
+    roi = gray[roi_y1:h, int(w * 0.1):int(w * 0.9)]
+    edges = cv2.Canny(roi, 50, 150)
+    lines = cv2.HoughLinesP(edges, 1, np.pi / 180, 50, minLineLength=40, maxLineGap=50)
     import cv2
     import numpy as np
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -378,7 +622,8 @@ def detect_lane_in_frame(frame):
         px_w = right_x - left_x
         ref_px = int(w * 0.72) - int(w * 0.28)  # 参考像素宽 (3.65m)
         width_m = 3.65 * px_w / ref_px if ref_px > 0 else None
-    return {"left_x": left_x, "right_x": right_x, "left_ok": left_ok, "right_ok": right_ok, "width_m": width_m}
+    return {"left_x": left_x, "right_x": right_x, "left_ok": left_ok, "right_ok": right_ok,
+            "width_m": width_m, "method": "hough"}
 
 
 def dual_check(csv_labels, frame, cfg):
@@ -402,6 +647,9 @@ def dual_check(csv_labels, frame, cfg):
     # 画面检测失败 (光线差/无线)
     if not det["left_ok"] or not det["right_ok"]:
         return "🔍 需人工复核", "画面车道线检测不完全, 建议人工查看截图确认"
+    # 置信度检查: YOLOP像素太少说明检测不可靠 -> 复核
+    if det.get("method") == "yolop" and det.get("pixels", 0) < 3000:
+        return "🔍 需人工复核", f"YOLOP检测像素仅{det.get('pixels', 0)}(不可靠), 建议人工查看截图确认"
     # 画面实际宽度
     wm = det["width_m"]
     if wm is None:
@@ -512,7 +760,12 @@ h1{font-size:22px;margin-bottom:4px}.sub{color:var(--text2);font-size:13px;margi
 .bar-track{flex:1;background:#243349;border-radius:4px;height:16px;overflow:hidden}
 .bar-fill{height:100%;border-radius:4px}
 .bar-val{width:40px;color:var(--text);font-weight:600;flex-shrink:0}
-.more{font-size:12px;color:var(--text2);text-align:center;padding:8px}
+.chains{margin-top:12px;background:#16213a;border:1px solid var(--border);border-radius:8px;padding:10px}
+.chains-title{font-size:13px;font-weight:700;color:var(--blue);margin-bottom:8px}
+.chains-body{display:flex;flex-wrap:wrap;gap:6px}
+.chain-item{font-size:12px;padding:4px 10px;border-radius:6px;font-weight:600}
+.chain-warn{background:rgba(56,189,248,.15);color:var(--blue)}
+.chain-burst{background:rgba(239,68,68,.15);color:var(--red)}.more{font-size:12px;color:var(--text2);text-align:center;padding:8px}
 """
 
 
@@ -578,7 +831,9 @@ def generate_html(results, total_points, total_frames, cfg, out_time):
                 for d in cfg["frame_offsets"]:
                     fidx = pf.get(d)
                     if fidx is not None and fidx in video_frames:
-                        b64 = frame_to_b64(video_frames[fidx], cfg["img_quality"], cfg["img_max_w"])
+                        # 本车道线标注 (绿=左, 红=右)
+                        _annot, _lx, _rx = annotate_own_lane(video_frames[fidx])
+                        b64 = frame_to_b64(_annot, cfg["img_quality"], cfg["img_max_w"])
                         if b64:
                             dlabel = f"{d:+d}s" if d else "b1"
                             fhtml += f'<div class="frame"><img src="data:image/jpeg;base64,{b64}"><div class="cap">{dlabel} (帧{fidx})</div><div class="clr">S={clarity_cache[fidx]["S"]:.1f} L{clarity_cache[fidx]["L"]:.0f}/E{clarity_cache[fidx]["E"]:.1f}/C{clarity_cache[fidx]["C"]:.0f}/B{clarity_cache[fidx]["B"]:.0f}/F{clarity_cache[fidx]["F"]:.1f}</div></div>'
@@ -616,7 +871,16 @@ def generate_html(results, total_points, total_frames, cfg, out_time):
             pts_html += f'<div class="more">… 另有 {len(points) - cfg["max_points"]} 个错误点未列出</div>'
 
         if points:
-            body = f'<div class="ev-count">A={str(p["tstr"])} ±{cfg["window_csv"]}s 检出 <b>{len(points)}</b> 个错误点</div>' + pts_html
+            # 规则五事件链展示
+            chains_html = ""
+            if e.get("lost_chains"):
+                items_c = []
+                for ch in e["lost_chains"]:
+                    warn_tag = "🔵 有前兆" if ch["has_warning"] else "🔴 突发"
+                    cls = "chain-warn" if ch["has_warning"] else "chain-burst"
+                    items_c.append(f'<span class="chain-item {cls}">{ch["side"]}侧 {sec_to_hms(ch["start"])}~{sec_to_hms(ch["end"])} 持续{ch["duration_s"]}s ({warn_tag})</span>')
+                chains_html = f'<div class="chains"><div class="chains-title">🔗 丢失事件链 (规则五)</div><div class="chains-body">{" ".join(items_c)}</div></div>'
+            body = f'<div class="ev-count">A={str(p["tstr"])} ±{cfg["window_csv"]}s 检出 <b>{len(points)}</b> 个错误点</div>' + pts_html + chains_html
         else:
             body = '<div class="no-data">✅ A±30s 窗口内未检出异常</div>'
 
@@ -756,6 +1020,8 @@ def main():
         points = scan_errors(csv_path, p["sec"], cfg["window_csv"]) if csv_path else []
         total_points += len(points)
 
+        # 规则五: 丢失事件链
+        lost_chains = build_lost_chains(points) if points else []
         # 模块5: 抽帧
         video_frames = {}
         point_frames = {}
@@ -767,6 +1033,7 @@ def main():
         results.append({
             "problem": p, "csv": csv_path, "video": video_path,
             "points": points, "video_frames": video_frames, "point_frames": point_frames,
+            "lost_chains": lost_chains,
         })
         log("处理", f"#{p['num']} {str(p['tstr'])}: {len(points)}个错误点, {sum(1 for pf in point_frames.values() for f in pf.values() if f in video_frames)}张截图")
 

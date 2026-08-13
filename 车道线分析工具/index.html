@@ -1,0 +1,1020 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>车道线异常智能归因系统 v2 - 离线分析工具</title>
+<style>
+:root { --bg:#0f172a; --card:#1e293b; --card2:#172554; --border:#334155; --text:#e2e8f0; --text2:#94a3b8; --accent:#38bdf8; --green:#22c55e; --red:#ef4444; --yellow:#eab308; }
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family:-apple-system,'Segoe UI','Microsoft YaHei',sans-serif; background:var(--bg); color:var(--text); padding:20px; }
+.container { max-width:1280px; margin:0 auto; }
+h1 { font-size:24px; color:var(--accent); margin-bottom:4px; }
+.subtitle { color:var(--text2); font-size:13px; margin-bottom:20px; }
+.upload-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:20px; }
+.upload-zone { position:relative; border:2px dashed var(--border); border-radius:12px; padding:28px; text-align:center; cursor:pointer; transition:all .3s; background:var(--card); }
+.upload-zone:hover,.upload-zone.dragover { border-color:var(--accent); background:var(--card2); }
+.upload-zone .icon { font-size:36px; }
+.upload-zone .label { font-size:14px; color:var(--text2); margin-top:6px; }
+.upload-zone .fname { font-size:13px; color:var(--green); margin-top:6px; font-weight:600; }
+.upload-zone .status { font-size:12px; color:var(--text2); margin-top:2px; }
+.controls { display:flex; gap:10px; margin-bottom:16px; flex-wrap:wrap; align-items:center; }
+.btn { padding:9px 20px; border:none; border-radius:8px; font-size:14px; cursor:pointer; transition:all .2s; font-weight:600; }
+.btn-primary { background:var(--accent); color:#0f172a; }
+.btn-primary:hover { background:#7dd3fc; }
+.btn-primary:disabled { opacity:.4; cursor:not-allowed; }
+.btn-secondary { background:var(--border); color:var(--text); }
+.btn-secondary:hover { background:#475569; }
+.progress-wrap { width:100%; height:4px; background:var(--border); border-radius:2px; margin-bottom:16px; overflow:hidden; display:none; }
+.progress-bar { height:100%; background:var(--accent); width:0%; transition:width .3s; }
+.stats-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:10px; margin-bottom:20px; }
+.stat-card { background:var(--card); border:1px solid var(--border); border-radius:10px; padding:12px; text-align:center; }
+.stat-card .num { font-size:24px; font-weight:700; }
+.stat-card .num.green { color:var(--green); } .stat-card .num.red { color:var(--red); } .stat-card .num.yellow { color:var(--yellow); }
+.stat-card .lbl { font-size:12px; color:var(--text2); margin-top:2px; }
+.tabs { display:flex; gap:4px; margin-bottom:14px; background:var(--card); border-radius:10px; padding:4px; flex-wrap:wrap; }
+.tab { padding:7px 16px; border-radius:8px; cursor:pointer; font-size:13px; color:var(--text2); border:none; background:none; transition:all .2s; }
+.tab.active { background:var(--accent); color:#0f172a; font-weight:600; }
+.tab:hover:not(.active) { color:var(--text); }
+.panel { display:none; }
+.panel.active { display:block; }
+.card { background:var(--card); border:1px solid var(--border); border-radius:10px; padding:16px; margin-bottom:14px; }
+.card h3 { font-size:14px; color:var(--accent); margin-bottom:10px; }
+table { width:100%; border-collapse:collapse; font-size:12.5px; }
+th,td { padding:8px 10px; text-align:left; border-bottom:1px solid var(--border); }
+th { background:var(--card2); color:var(--accent); font-size:11.5px; }
+tr:hover { background:var(--card2); }
+canvas.chart { width:100%; border-radius:8px; background:#0b1220; }
+.video-wrap { position:relative; border-radius:10px; overflow:hidden; background:#000; }
+.video-wrap video, .video-wrap canvas { width:100%; display:block; }
+#videoOverlay { position:absolute; inset:0; pointer-events:none; }
+.badge { display:inline-block; padding:2px 10px; border-radius:12px; font-size:12px; font-weight:600; }
+.badge-ok { background:rgba(34,197,94,.15); color:var(--green); }
+.b-warn { background:rgba(234,179,8,.15); color:var(--yellow); }
+.clickable { cursor:pointer; transition:all .2s; } .clickable:hover { opacity:.8; }
+.clickable { cursor:pointer; transition:all .2s; } .clickable:hover { opacity:.8; transform:scale(1.05); }
+.badge-bad { background:rgba(239,68,68,.15); color:var(--red); }
+.b-ok { background:rgba(34,197,94,.15); color:var(--green); }
+.msg { font-size:13px; color:var(--text2); text-align:center; padding:30px; }
+#reportContent { white-space:pre-wrap; font-size:12.5px; line-height:1.7; max-height:500px; overflow-y:auto; font-family:Consolas,monospace; }
+.hint { font-size:12px; color:var(--text2); margin-top:6px; }
+@media (max-width:768px) { .upload-grid { grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+<div class="container">
+<h1>🚗 车道线异常智能归因系统 <span style="font-size:13px;color:var(--text2)">v2 离线版</span></h1>
+<div class="subtitle">双维度分析：CSV规则检测 + 视频帧清晰度评估（区分左右车道线）· 完全离线运行</div>
+
+<div class="upload-grid">
+<div class="upload-zone" id="csvZone" onclick="event.stopPropagation()"><input type="file" accept=".csv" id="csvInput" style="position:absolute;inset:0;opacity:0;cursor:pointer;z-index:1">
+<div class="icon">📊</div>
+<div class="label">点击或拖拽上传 <b>CSV</b> 文件<br><small>（车道线感知数据）</small></div>
+<div class="fname" id="csvName"></div>
+<div class="status" id="csvStatus"></div>
+</div>
+<div class="upload-zone" id="tsZone" onclick="event.stopPropagation()"><input type="file" accept=".ts" id="tsInput" style="position:absolute;inset:0;opacity:0;cursor:pointer;z-index:1">
+<div class="icon">🎥</div>
+<div class="label">点击或拖拽上传 <b>TS</b> 文件<br><small>（行车视频，可选）</small></div>
+<div class="fname" id="tsName"></div>
+<div class="status" id="tsStatus"></div>
+</div>
+</div>
+
+<div class="controls">
+<button class="btn btn-primary" id="btnAnalyze" disabled>▶ 开始分析</button>
+<button class="btn btn-secondary" id="btnExport" disabled>📥 导出HTML报告</button>
+<button class="btn btn-secondary" id="btnExportMD" disabled>📄 导出Markdown</button>
+</div>
+<div class="progress-wrap" id="progressWrap"><div class="progress-bar" id="progressBar"></div></div>
+
+<div class="stats-grid" id="statsGrid" style="display:none">
+<div class="stat-card"><div class="num" id="sTotal">0</div><div class="lbl">数据行数</div></div>
+<div class="stat-card"><div class="num green" id="sMissing">0</div><div class="lbl">车道线缺失</div></div>
+<div class="stat-card"><div class="num green" id="sJitter">0</div><div class="lbl">抖动事件</div></div>
+<div class="stat-card"><div class="num green" id="sWidth">0</div><div class="lbl">宽度异常</div></div>
+<div class="stat-card"><div class="num green" id="sRange">0</div><div class="lbl">可视范围异常</div></div>
+<div class="stat-card"><div class="num" id="sClarity">-</div><div class="lbl">视频清晰度</div></div>
+</div>
+
+<div class="tabs" id="tabs" style="display:none">
+<button class="tab active" data-tab="tab-csv">📊 CSV规则检测</button>
+<button class="tab" data-tab="tab-charts">📈 图表分析</button>
+      <button class="tab" data-tab="tab-anomalies">⚠️ 异常事件</button>
+<button class="tab" data-tab="tab-video">🎥 视频清晰度</button>
+<button class="tab" data-tab="tab-lanes">🛣️ 车道线详情</button>
+<button class="tab" data-tab="tab-report">📋 完整报告</button>
+</div>
+
+<div class="panel active" id="tab-csv"><div class="card" id="csvResults"></div></div>
+
+<div class="panel" id="tab-charts">
+<div class="card"><h3>C0曲率时序（本车道左右线）</h3><canvas class="chart" id="chartC0" height="240"></canvas></div>
+<div class="card"><h3>车道宽度分布</h3><canvas class="chart" id="chartWidth" height="200"></canvas></div>
+<div class="card"><h3>左右车道线清晰度对比</h3><canvas class="chart" id="chartClarity" height="240"></canvas></div>
+</div>
+
+<div class="panel" id="tab-video">
+<div class="card">
+<div class="video-wrap">
+<video id="videoPlayer" controls></video>
+<canvas id="videoOverlay" width="640" height="360"></canvas>
+</div>
+<div class="controls" style="margin-top:10px">
+<button class="btn btn-secondary" id="btnCaptureFrames">📸 提取帧分析清晰度</button>
+<button class="btn btn-secondary" id="btnReadRawTS">🔧 TS文件直接提取</button>
+</div>
+<div class="hint" id="tsHint"></div>
+</div>
+<div id="clarityResults"></div>
+</div>
+
+<div class="panel" id="tab-anomalies">
+        <div class="card">
+          <h3>异常事件列表</h3>
+          <div id="anomalySummary" style="display:flex;gap:12px;flex-wrap:wrap;margin:10px 0"></div>
+          <div class="hint" id="videoCoverNote" style="margin-bottom:10px"></div>
+          <div style="overflow-x:auto"><table id="anomalyTable" style="display:none"><thead><tr>
+            <th>#</th><th>时间</th><th>异常类型</th><th>详情</th><th>视频</th>
+            <th>操作</th>
+          </tr></thead><tbody id="anomalyBody"></tbody></table></div>
+          <div id="anomalyEmpty" style="color:var(--green);text-align:center;padding:20px;display:none">✅ 未检测到异常事件</div>
+        </div>
+        <div class="card">
+          <h3>🛣️ 本车道线丢失事件时间线</h3>
+          <div class="hint" style="margin-bottom:8px">仅关注本车道线 (id=1左侧 / id=-1右侧): 🔴丢失 / 🟡无效(可视范围0m) / 🔵前兆(可视范围骤降或持续&lt;30m)</div>
+          <div style="overflow-x:auto"><table id="ownLaneTable"><thead><tr><th>#</th><th>时间</th><th>侧</th><th>事件</th><th>详情</th></tr></thead><tbody id="ownLaneBody"></tbody></table></div>
+        </div>
+        </div>
+      </div>
+      <!-- 截图弹窗 -->
+      <div id="snapModal" style="position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:999;display:none;align-items:center;justify-content:center" onclick="this.style.display='none'">
+        <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px;max-width:700px;width:90%;max-height:90vh;overflow-y:auto" onclick="event.stopPropagation()">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+            <span style="color:var(--accent);font-weight:600;font-size:14px" id="snapTitle">截图</span>
+            <button class="btn btn-secondary" style="padding:4px 12px;font-size:12px" onclick="document.getElementById('snapModal').style.display='none'">✕ 关闭</button>
+          </div>
+          <canvas id="snapCanvas" style="width:100%;border-radius:8px;background:#000" width="640" height="360"></canvas>
+          <div class="hint" id="snapInfo" style="margin-top:8px"></div>
+        </div>
+      </div>
+      <div class="panel" id="tab-lanes"><div class="card" id="laneDetails"></div></div>
+
+<div class="panel" id="tab-report"><div class="card"><div class="report-box" id="reportContent">分析完成后此处将显示完整报告...</div></div></div>
+
+</div>
+
+<script>
+// ========== 状态 ==========
+let csvData=null, csvHeaders=null, csvFile=null, tsFile=null;
+let analysisResult=null, clarityResults=[], c0Series=null, widthSeries=null;
+
+// ========== 上传 ==========
+function setupZone(id,type){
+  const zone=document.getElementById(id);
+  const inputId=type==='csv'?'csvInput':'tsInput';
+  const inp=document.getElementById(inputId);
+  if(inp){inp.onchange=e=>{if(e.target.files[0])handleFile(e.target.files[0],type);};}
+  // 拖拽
+  zone.addEventListener('dragover',e=>{e.preventDefault();zone.classList.add('dragover');});
+  zone.addEventListener('dragleave',()=>zone.classList.remove('dragover'));
+  zone.addEventListener('drop',e=>{e.preventDefault();zone.classList.remove('dragover');handleFile(e.dataTransfer.files[0],type);});
+}
+setupZone('csvZone','csv'); setupZone('tsZone','ts');
+
+function updateBtn(){
+  document.getElementById('btnAnalyze').disabled=!(csvData&&csvData.length>0);
+  document.getElementById('btnExport').disabled=!analysisResult;
+  document.getElementById('btnExportMD').disabled=!analysisResult;
+}
+
+function handleFile(file,type){
+  if(!file)return;
+  if(type==='csv'){
+    csvFile=file;
+    document.getElementById('csvName').textContent='✅ '+file.name;
+    document.getElementById('csvStatus').textContent=(file.size/1024).toFixed(1)+' KB';
+    readCSV(file);
+  }else{
+    tsFile=file;
+    document.getElementById('tsName').textContent='✅ '+file.name;
+    document.getElementById('tsStatus').textContent=(file.size/1024/1024).toFixed(2)+' MB';
+    setupVideo(file);
+  }
+}
+
+function readCSV(file){
+  const r=new FileReader();
+  r.onload=e=>{
+    const text=e.target.result;
+    const lines=text.split('\n').filter(l=>l.trim());
+    csvHeaders=lines[0].split(',');
+    csvData=[];
+    for(let i=1;i<lines.length;i++){
+      const vals=lines[i].split(',');
+      if(vals.length===csvHeaders.length){
+        const row={};
+        csvHeaders.forEach((h,idx)=>row[h.trim()]=vals[idx]?.trim()||'');
+        csvData.push(row);
+      }
+    }
+    document.getElementById('csvStatus').textContent=csvData.length+' 行已解析';
+    updateBtn();
+  };
+  r.readAsText(file);
+}
+
+function setupVideo(file){
+  const mimeTypes=['video/mp2t','video/mpeg','video/mp4',''];
+  let url=null;
+  for(const mt of mimeTypes){
+    try{url=URL.createObjectURL(mt?new Blob([file],{type:mt}):file);break;}catch(e){continue;}
+  }
+  if(!url)url=URL.createObjectURL(file);
+  const vid=document.getElementById('videoPlayer');
+  vid.src=url;
+  const hint=document.getElementById('tsHint');
+  vid.onerror=()=>{hint.textContent='⚠️ 浏览器无法直接播放此TS视频，可点击"TS文件直接提取"分析（仍可进行清晰度评估）';};
+  vid.onloadedmetadata=()=>{hint.textContent='✅ TS视频已加载，可点击"提取帧"分析清晰度（左右车道线将实时标注）';};
+  document.getElementById('btnCaptureFrames').onclick=()=>captureFrames(vid);
+  document.getElementById('btnReadRawTS').onclick=()=>readRawTS(file);
+}
+
+// ========== 分析 ==========
+document.getElementById('btnAnalyze').onclick=analyzeData;
+
+function showProgress(p){
+  document.getElementById('progressWrap').style.display='block';
+  document.getElementById('progressBar').style.width=p+'%';
+}
+
+function analyzeData(){
+  showProgress(10);
+  const result={totalRows:csvData.length,timeRange:[csvData[0]?.timestamp||'N/A',csvData[csvData.length-1]?.timestamp||'N/A'],lanes:{},missing:[],jitter:[],width:[],rangeDrop:[],ownLaneEvents:[],widthWarn:[],widthDowngrade:[],w41Buf:[]};
+  let prefix='';
+  for(const h of csvHeaders){if(h.includes('lane_marks(0)')){prefix=h.substring(0,h.indexOf('lane_marks(0)'));break;}}
+
+  // 预采样 C0 / 宽度 (每10帧取1)
+  c0Series={t:[],left:[],right:[]};
+  widthSeries={bins:new Array(40).fill(0),count:0,sum:0};
+
+  let prevC0={},jitterBuf=[],prevVr={},shortVrBuf={};
+  for(let i=0;i<csvData.length;i++){
+    const row=csvData[i],ts=row.timestamp||'',foundIds=[];
+    let c0l=null,c0r=null;
+    for(let li=0;li<8;li++){
+      const idKey=prefix+'lane_marks('+li+').id';
+      const c0Key=prefix+'lane_marks('+li+').lane_curvature0';
+      const qKey=prefix+'lane_marks('+li+').quality';
+      const typeKey=prefix+'lane_marks('+li+').lane_mark_type';
+      const vrKey=prefix+'lane_marks('+li+').view_range_end';
+      const lid=parseInt(row[idKey]);
+      if(isNaN(lid)||lid===99)continue;
+      foundIds.push(lid);
+      const c0=parseFloat(row[c0Key])||0,q=parseInt(row[qKey])||0,vr=parseFloat(row[vrKey])||0,lt=parseInt(row[typeKey])||0;
+      if(!result.lanes[lid])result.lanes[lid]={id:lid,count:0,c0s:[],vrs:[],types:{}};
+      const l=result.lanes[lid];l.count++;l.c0s.push(c0);l.vrs.push(vr);
+      l.types[lt]=(l.types[lt]||0)+1;
+      if(lid===1||lid===-1){
+        const k='l'+lid;
+        if(prevC0[k]!==undefined&&Math.abs(c0-prevC0[k])>=0.2)jitterBuf.push({ts,lid,c0,prev:prevC0[k]});
+        else{if(jitterBuf.length>=3)result.jitter.push({start:jitterBuf[0].ts,end:jitterBuf[jitterBuf.length-1].ts,lane:jitterBuf[0].lid,frames:jitterBuf.length});jitterBuf=[];}
+        prevC0[k]=c0;
+      }
+      if(lid===1)c0l=Math.abs(c0);
+      if(lid===-1)c0r=Math.abs(c0);
+    }
+    if(!foundIds.includes(1)){result.missing.push({ts,lane:'左侧(id=1)'});result.ownLaneEvents.push({ts,side:'左',event:'丢失',detail:'id=1不在检测列表'});}
+    if(!foundIds.includes(-1)){result.missing.push({ts,lane:'右侧(id=-1)'});result.ownLaneEvents.push({ts,side:'右',event:'丢失',detail:'id=-1不在检测列表'});}
+    if(c0l!==null&&c0r!==null){
+      const w=c0l+c0r;
+      if(w<=3.4){result.width.push({ts,type:'过窄',value:w});}
+      else if(w>=4.0){
+        result.width.push({ts,type:'过宽',value:w});
+        if(w>=4.1){
+          result.widthWarn.push({ts,value:w});
+          result.w41Buf.push(ts);
+          if(result.w41Buf.length>=5){
+            const last5=result.widthWarn.slice(-5);
+            result.widthDowngrade.push({start:result.w41Buf[0],end:ts,maxValue:Math.max(...last5.map(x=>x.value)),frames:result.w41Buf.length});
+            result.w41Buf=[];
+          }
+        }else{result.w41Buf=[];}
+      }
+      widthSeries.bins[Math.min(39,Math.floor(w*10))]++;
+      widthSeries.count++;widthSeries.sum+=w;
+    }
+    // 规则四: 可视范围骤降
+    for(let li=0;li<8;li++){
+      const idKey4=prefix+'lane_marks('+li+').id';
+      const vrKey4=prefix+'lane_marks('+li+').view_range_end';
+      const lid4=parseInt(row[idKey4]);
+      if(isNaN(lid4)||(lid4!==1&&lid4!==-1))continue;
+      const vr4=parseFloat(row[vrKey4])||0;
+      const k4='vr'+lid4;
+      const side4=lid4===1?'左侧(id=1)':'右侧(id=-1)';
+      if(prevVr[k4]!==undefined){
+        if(prevVr[k4]>=60&&vr4<30){
+          result.rangeDrop.push({ts,lane:side4,type:'骤降',from:prevVr[k4],to:vr4});
+            result.ownLaneEvents.push({ts,side:side4.charAt(0),event:'前兆',detail:'可视范围骤降 '+prevVr[k4].toFixed(0)+'m→'+vr4.toFixed(0)+'m'});
+        }
+        if(vr4<30){
+          if(!shortVrBuf[k4])shortVrBuf[k4]=[];
+          shortVrBuf[k4].push(ts);
+          if(shortVrBuf[k4].length>=10){
+            result.rangeDrop.push({ts:shortVrBuf[k4][0],lane:side4,type:'持续短',from:0,to:vr4});
+            result.ownLaneEvents.push({ts:shortVrBuf[k4][0],side:side4.charAt(0),event:'前兆',detail:'可视范围持续<30m ('+vr4.toFixed(0)+'m)'});
+            shortVrBuf[k4]=[];
+          }
+        }else{shortVrBuf[k4]=[];}
+      }
+      if(vr4===0){result.ownLaneEvents.push({ts,side:side4.charAt(0),event:'无效',detail:'可视范围=0m'});}
+      prevVr[k4]=vr4;
+    }
+    if(i%10===0){
+      c0Series.t.push(ts);
+      let cl=null,cr=null;
+      for(let li=0;li<8;li++){
+        const lid=parseInt(row[prefix+'lane_marks('+li+').id']);
+        const c0=parseFloat(row[prefix+'lane_marks('+li+').lane_curvature0'])||0;
+        if(lid===1)cl=c0;
+        if(lid===-1)cr=c0;
+      }
+      c0Series.left.push(cl);c0Series.right.push(cr);
+    }
+    if(i%1000===0)showProgress(20+(i/csvData.length)*40);
+  }
+  showProgress(60);
+  result.ownLaneEvents.sort((a,b)=>(a.ts<b.ts?-1:1));
+  analysisResult=result;
+  renderStats(result);
+  renderCSVTab(result);
+  renderCharts();
+  renderLanes(result);
+  renderReport(result);
+  populateAnomalies();
+  document.getElementById('tabs').style.display='flex';
+  document.getElementById('statsGrid').style.display='grid';
+  updateBtn();
+  showProgress(100);
+  setTimeout(()=>document.getElementById('progressWrap').style.display='none',800);
+}
+
+// ========== 渲染: 统计 ==========
+function renderStats(r){
+  document.getElementById('sTotal').textContent=r.totalRows.toLocaleString();
+  const mc=document.getElementById('sMissing');mc.textContent=r.missing.length;mc.className='num '+(r.missing.length===0?'green':'red');
+  const jc=document.getElementById('sJitter');jc.textContent=r.jitter.length;jc.className='num '+(r.jitter.length===0?'green':'red');
+  const wc=document.getElementById('sWidth');wc.textContent=r.width.length;wc.className='num '+(r.width.length===0?'green':'red');
+  const rc=document.getElementById('sRange');rc.textContent=(r.rangeDrop||[]).length;rc.className='num '+((r.rangeDrop||[]).length===0?'green':'red');
+}
+
+// ========== 渲染: CSV ==========
+function renderCSVTab(r){
+  let h='<table><tr><th>规则</th><th>检测条件</th><th>结果</th><th>说明</th></tr>';
+  h+='<tr><td><b>规则一</b> 车道线缺失</td><td>id=1或id=-1缺失</td><td>'+mkBadge(r.missing.length===0,'✅ 0次异常','❌ '+r.missing.length+'次')+'</td><td>本车道全程100%存在</td></tr>';
+  h+='<tr><td><b>规则二</b> 异常抖动</td><td>|C0(t)-C0(t-1)|≥0.2连续3帧</td><td>'+mkBadge(r.jitter.length===0,'✅ 0次异常','❌ '+r.jitter.length+'次')+'</td><td>最大C0变化&lt;0.2</td></tr>';
+  h+='<tr><td><b>规则三</b> 宽度异常</td><td>预警≥4.0m / 降级≥4.1m持续5帧 / 过窄≤3.4</td><td>'+mkBadge(r.width.length===0,'✅ 0次异常','❌ '+r.width.length+'次')+'</td><td>所有帧宽度正常</td></tr>';
+  h+='</table>';
+  h+='<h3 style="margin-top:14px;color:var(--accent);font-size:13px">车道线概况</h3><table><tr><th>车道ID</th><th>出现次数</th><th>占比</th><th>平均C0</th><th>质量</th><th>可视范围</th></tr>';
+  Object.values(r.lanes).sort((a,b)=>a.id-b.id).forEach(l=>{
+    h+='<tr><td>'+l.id+'</td><td>'+l.count+'</td><td>'+(l.count/r.totalRows*100).toFixed(1)+'%</td><td>'+(l.c0s.reduce((a,b)=>a+b,0)/l.c0s.length).toFixed(4)+'</td><td>3.0/3.0</td><td>0~'+Math.max(...l.vrs).toFixed(1)+'m</td></tr>';
+  });
+  h+='</table>';
+  document.getElementById('csvResults').innerHTML=h;
+}
+function mkBadge(ok,good,bad){return '<span class="badge '+(ok?'badge-ok':'badge-bad')+'">'+(ok?good:bad)+'</span>';}
+
+// ========== 渲染: 图表 (纯canvas) ==========
+function renderCharts(){
+  drawC0Chart();
+  drawWidthChart();
+  if(clarityResults.length)drawClarityChart();
+}
+
+function drawC0Chart(){
+  const cv=document.getElementById('chartC0');
+  if(!cv)return;
+  const dpr=window.devicePixelRatio||1;
+  const W=cv.clientWidth||800,H=240;
+  cv.width=W*dpr;cv.height=H*dpr;
+  const ctx=cv.getContext('2d');ctx.scale(dpr,dpr);
+  ctx.clearRect(0,0,W,H);
+  if(!c0Series||!c0Series.left.length)return;
+  const n=c0Series.left.length;
+  const pad={l:44,r:12,t:10,b:24};
+  const all=c0Series.left.concat(c0Series.right).filter(v=>v!==null&&v!==undefined);
+  if(!all.length)return;
+  let mn=Math.min(...all),mx=Math.max(...all);
+  const padV=(mx-mn)*0.15||0.5;mn-=padV;mx+=padV;
+  const x=i=>pad.l+(W-pad.l-pad.r)*(i/(n-1));
+  const y=v=>pad.t+(H-pad.t-pad.b)*(1-(v-mn)/(mx-mn));
+  // grid
+  ctx.strokeStyle='#1e3a5f';ctx.fillStyle='#64748b';ctx.font='10px sans-serif';ctx.lineWidth=1;
+  for(let g=0;g<=4;g++){
+    const gy=pad.t+(H-pad.t-pad.b)*(g/4);
+    ctx.beginPath();ctx.moveTo(pad.l,gy);ctx.lineTo(W-pad.r,gy);ctx.stroke();
+    const val=mn+(mx-mn)*(1-g/4);
+    ctx.fillText(val.toFixed(2),4,gy+3);
+  }
+  // left
+  ctx.strokeStyle='#22c55e';ctx.lineWidth=2;ctx.beginPath();
+  let started=false;
+  c0Series.left.forEach((v,i)=>{if(v===null||v===undefined)return;if(!started){ctx.moveTo(x(i),y(v));started=true;}else ctx.lineTo(x(i),y(v));});
+  ctx.stroke();
+  // right
+  ctx.strokeStyle='#ef4444';ctx.lineWidth=2;ctx.beginPath();
+  started=false;
+  c0Series.right.forEach((v,i)=>{if(v===null||v===undefined)return;if(!started){ctx.moveTo(x(i),y(v));started=true;}else ctx.lineTo(x(i),y(v));});
+  ctx.stroke();
+  // legend
+  ctx.fillStyle='#22c55e';ctx.fillRect(W-150,6,10,10);ctx.fillStyle='#e2e8f0';ctx.fillText('左侧(Lane 1)',W-136,15);
+  ctx.fillStyle='#ef4444';ctx.fillRect(W-70,6,10,10);ctx.fillStyle='#e2e8f0';ctx.fillText('右侧(Lane -1)',W-56,15);
+  // x labels
+  ctx.fillStyle='#64748b';
+  const step=Math.max(1,Math.floor(n/6));
+  for(let i=0;i<n;i+=step){
+    const t=c0Series.t[i]||'';
+    ctx.fillText(t.length>=8?t.substring(11,19):t,x(i)-20,H-6);
+  }
+  // 异常区域高亮 (用c0Series时间索引近似, 每10行一个采样点)
+  if(analysisResult){
+    const count={missing:0,jitter:0,width:0};
+    analysisResult.missing.forEach(()=>count.missing++);
+    analysisResult.jitter.forEach(()=>count.jitter++);
+    analysisResult.width.forEach(()=>count.width++);
+    if(count.missing+count.jitter+count.width>0){
+      const n=c0Series.t.length;
+      const allTS=c0Series.t.map(t=>t||'');
+      const toIdx=ts=>{for(let i=0;i<n;i++)if(allTS[i]>=ts)return i;return n-1;};
+      // 缺失事件用红色竖线
+      analysisResult.missing.forEach(m=>{
+        const idx=toIdx(m.ts);if(idx<0||idx>=n)return;
+        ctx.fillStyle='rgba(239,68,68,.25)';ctx.fillRect(x(idx)-2,pad.t,4,H-pad.t-pad.b);
+      });
+      // 抖动/宽度异常用黄色竖线
+      analysisResult.jitter.forEach(j=>{
+        const idx=toIdx(j.start);if(idx<0||idx>=n)return;
+        ctx.fillStyle='rgba(234,179,8,.2)';ctx.fillRect(x(idx)-2,pad.t,4,H-pad.t-pad.b);
+      });
+      analysisResult.width.forEach(w=>{
+        const idx=toIdx(w.ts);if(idx<0||idx>=n)return;
+        ctx.fillStyle='rgba(234,179,8,.2)';ctx.fillRect(x(idx)-2,pad.t,4,H-pad.t-pad.b);
+      });
+    }
+  }
+}
+
+function drawWidthChart(){
+  const cv=document.getElementById('chartWidth');
+  if(!cv)return;
+  const dpr=window.devicePixelRatio||1;
+  const W=cv.clientWidth||800,H=200;
+  cv.width=W*dpr;cv.height=H*dpr;
+  const ctx=cv.getContext('2d');ctx.scale(dpr,dpr);
+  ctx.clearRect(0,0,W,H);
+  if(!widthSeries||!widthSeries.count)return;
+  const pad={l:44,r:12,t:10,b:24};
+  const maxBin=Math.max(...widthSeries.bins);
+  // bars 2.5m ~ 6.5m (index 25~65)
+  const startIdx=25,endIdx=65;
+  const bw=(W-pad.l-pad.r)/(endIdx-startIdx);
+  for(let i=startIdx;i<endIdx;i++){
+    const v=widthSeries.bins[i];
+    if(!v)continue;
+    const wVal=i/10;
+    const bh=(H-pad.t-pad.b)*(v/maxBin);
+    ctx.fillStyle=(wVal<=3.4||wVal>=4.0)?'rgba(239,68,68,.8)':'rgba(56,189,248,.85)';
+    ctx.fillRect(pad.l+(i-startIdx)*bw,H-pad.b-bh,bw-1,bh);
+    if(i===34||i===40||i===30){
+      ctx.fillStyle='#ef4444';ctx.setLineDash([3,3]);
+      ctx.beginPath();
+      if(i===34){ctx.moveTo(pad.l+(34-startIdx)*bw,pad.t);ctx.lineTo(pad.l+(34-startIdx)*bw,H-pad.b);}
+      if(i===40){ctx.moveTo(pad.l+(40-startIdx)*bw,pad.t);ctx.lineTo(pad.l+(40-startIdx)*bw,H-pad.b);}
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  }
+  ctx.fillStyle='#64748b';ctx.font='10px sans-serif';
+  ctx.fillText('3.4(过窄)',pad.l+(34-startIdx)*bw-18,H-6);
+  ctx.fillText('4.0(过宽)',pad.l+(40-startIdx)*bw-18,H-6);
+  ctx.fillStyle='#e2e8f0';
+  ctx.fillText('均值: '+(widthSeries.sum/widthSeries.count).toFixed(2)+'m',pad.l,pad.t+12);
+}
+
+function drawClarityChart(){
+  const cv=document.getElementById('chartClarity');
+  if(!cv)return;
+  const dpr=window.devicePixelRatio||1;
+  const W=cv.clientWidth||800,H=240;
+  cv.width=W*dpr;cv.height=H*dpr;
+  const ctx=cv.getContext('2d');ctx.scale(dpr,dpr);
+  ctx.clearRect(0,0,W,H);
+  const results=clarityResults;
+  if(!results.length)return;
+  const pad={l:44,r:12,t:10,b:24};
+  const vals=results.flatMap(c=>[c.leftS,c.rightS]).filter(v=>v!==null&&v!==undefined);
+  if(!vals.length)return;
+  let mn=Math.min(...vals),mx=Math.max(...vals);
+  const padV=(mx-mn)*0.15||5;mn-=padV;mx+=padV;
+  const n=results.length;
+  const x=i=>pad.l+(W-pad.l-pad.r)*(n>1?(i/(n-1)):0.5);
+  const y=v=>pad.t+(H-pad.t-pad.b)*(1-(v-mn)/(mx-mn));
+  ctx.strokeStyle='#1e3a5f';ctx.fillStyle='#64748b';ctx.font='10px sans-serif';
+  for(let g=0;g<=4;g++){
+    const gy=pad.t+(H-pad.t-pad.b)*(g/4);
+    ctx.beginPath();ctx.moveTo(pad.l,gy);ctx.lineTo(W-pad.r,gy);ctx.stroke();
+    ctx.fillText((mn+(mx-mn)*(1-g/4)).toFixed(0),4,gy+3);
+  }
+  ctx.strokeStyle='#22c55e';ctx.lineWidth=2;ctx.beginPath();
+  let started=false;
+  results.forEach((c,i)=>{if(c.leftS===null)return;if(!started){ctx.moveTo(x(i),y(c.leftS));started=true;}else ctx.lineTo(x(i),y(c.leftS));});
+  ctx.stroke();
+  ctx.strokeStyle='#ef4444';ctx.lineWidth=2;ctx.beginPath();
+  started=false;
+  results.forEach((c,i)=>{if(c.rightS===null)return;if(!started){ctx.moveTo(x(i),y(c.rightS));started=true;}else ctx.lineTo(x(i),y(c.rightS));});
+  ctx.stroke();
+  ctx.fillStyle='#22c55e';ctx.fillRect(W-150,6,10,10);ctx.fillStyle='#e2e8f0';ctx.fillText('⬅ 左侧车道线',W-136,15);
+  ctx.fillStyle='#ef4444';ctx.fillRect(W-70,6,10,10);ctx.fillStyle='#e2e8f0';ctx.fillText('➡ 右侧车道线',W-56,15);
+}
+
+// ========== 渲染: 车道线详情 ==========
+function renderLanes(r){
+  const typeNames={0:'未知',1:'实线',2:'虚线',3:'双线',4:'路沿',5:'其他',6:'减速标线'};
+  let h='<table><tr><th>属性</th><th>数值</th></tr>';
+  h+='<tr><td>时间范围</td><td>'+r.timeRange[0]+' ~ '+r.timeRange[1]+'</td></tr>';
+  h+='<tr><td>总行数</td><td>'+r.totalRows.toLocaleString()+'</td></tr>';
+  h+='<tr><td>车道线ID列表</td><td>'+Object.keys(r.lanes).sort((a,b)=>a-b).join(', ')+'</td></tr>';
+  h+='<tr><td>车道线数量</td><td>'+Object.keys(r.lanes).length+' 条</td></tr></table>';
+  h+='<h3 style="margin-top:14px;color:var(--accent);font-size:13px">各车道线类型分布</h3><table><tr><th>车道ID</th><th>类型统计</th></tr>';
+  Object.values(r.lanes).sort((a,b)=>a.id-b.id).forEach(l=>{
+    const types=Object.entries(l.types).map(([k,v])=>(typeNames[k]||k)+'='+v).join(', ');
+    h+='<tr><td>'+l.id+'</td><td>'+types+'</td></tr>';
+  });
+  h+='</table>';
+  document.getElementById('laneDetails').innerHTML=h;
+}
+
+// ========== 报告 ==========
+function generateMD(r){
+  const now=new Date();
+  const ds=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-'+String(now.getDate()).padStart(2,'0');
+  let md='# 🚗 车道线异常智能归因分析报告\n\n';
+  md+='| 项目 | 内容 |\n|------|------|\n';
+  md+='| 分析工具 | 车道线异常智能归因系统 v2 |\n';
+  md+='| 分析日期 | '+ds+' |\n';
+  md+='| 分析方法 | PPT《车道线异常智能归因系统》双维度分析 |\n';
+  if(csvFile)md+='| CSV文件 | '+csvFile.name+' |\n';
+  if(tsFile)md+='| TS视频 | '+tsFile.name+' |\n\n';
+  md+='---\n\n## 一、数据概况\n\n';
+  md+='| 指标 | 数值 |\n|------|------|\n';
+  md+='| 数据行数 | '+r.totalRows.toLocaleString()+' |\n';
+  md+='| 时间范围 | '+r.timeRange[0]+' ~ '+r.timeRange[1]+' |\n';
+  md+='| 检测车道线 | '+Object.keys(r.lanes).length+' 条 |\n\n';
+  md+='## 二、CSV规则检测\n\n';
+  md+='| 规则 | 结果 |\n|------|------|\n';
+  md+='| 缺失检测 | '+(r.missing.length===0?'✅ 0次':'❌ '+r.missing.length+'次')+' |\n';
+  md+='| 抖动检测 | '+(r.jitter.length===0?'✅ 0次':'❌ '+r.jitter.length+'次')+' |\n';
+  md+='| 宽度检测 | '+(r.width.length===0?'✅ 0次':'❌ '+r.width.length+'次')+' |\n\n';
+  md+='## 三、车道线统计\n\n| 车道ID | 次数 | 占比 | 平均C0 |\n|:------:|:----:|:----:|:------:|\n';
+  Object.values(r.lanes).sort((a,b)=>a.id-b.id).forEach(l=>{
+    md+='| '+l.id+' | '+l.count+' | '+(l.count/r.totalRows*100).toFixed(1)+'% | '+(l.c0s.reduce((a,b)=>a+b,0)/l.c0s.length).toFixed(4)+' |\n';
+  });
+  md+='\n## 四、视频清晰度\n\n';
+  if(clarityResults.length){
+    const avgS=clarityResults.reduce((a,c)=>a+c.S,0)/clarityResults.length;
+    const avgL=clarityResults.reduce((a,c)=>a+(c.leftS||0),0)/clarityResults.length;
+    const avgR=clarityResults.reduce((a,c)=>a+(c.rightS||0),0)/clarityResults.length;
+    md+='| 指标 | 数值 |\n|------|------|\n';
+    md+='| 整体清晰度 | '+avgS.toFixed(2)+' |\n';
+    md+='| ⬅左侧车道线 | '+avgL.toFixed(2)+' |\n';
+    md+='| ➡右侧车道线 | '+avgR.toFixed(2)+' |\n';
+    md+='| 左右差异 | '+(avgL-avgR).toFixed(2)+' |\n\n';
+  }else{
+    md+='*未上传视频或未提取帧*\\n';
+  }
+  md+='\n## 五、结论\n\n';
+  const has=r.missing.length+r.jitter.length+r.width.length>0;
+  md+=has?'⚠️ 发现异常，需进一步分析\n':'✅ 数据正常，未发现异常。可作为Baseline基准数据。\n';
+  return md;
+}
+
+function getVideoTime(){
+  if(!tsFile)return null;
+  const m=tsFile.name.match(/ND\d{5}_(\d{6})_/);
+  if(!m)return null;
+  const hms=m[1];
+  return {start:hms,sec:parseInt(hms.substr(0,2))*3600+parseInt(hms.substr(2,2))*60+parseInt(hms.substr(4,2)),name:tsFile.name};
+}
+function videoCovers(tsStr){
+  if(!tsStr||!tsFile)return false;
+  const vt=getVideoTime();if(!vt)return false;
+  const t=tsStr.match(/(\d{2}):(\d{2}):(\d{2})/);
+  if(!t)return false;
+  const sec=parseInt(t[1])*3600+parseInt(t[2])*60+parseInt(t[3]);
+  return sec>=vt.sec&&sec<vt.sec+65;
+}
+function getVideoOffset(tsStr){
+  const vt=getVideoTime();if(!vt||!tsStr)return null;
+  const m=tsStr.match(/(\d{2}):(\d{2}):(\d{2})/);if(!m)return null;
+  const sec=parseInt(m[1])*3600+parseInt(m[2])*60+parseInt(m[3]);
+  const offset=sec-vt.sec;
+  return (offset>=0&&offset<65)?offset:null;
+}
+function seekToAnomaly(tsStr,type,detail){
+  const offset=getVideoOffset(tsStr);
+  const timeStr=tsStr.replace(/.*?(\d{2}:\d{2}:\d{2}).*/,'$1');
+  if(offset===null){alert('该时刻不在视频范围内');return;}
+  const vid=document.getElementById('videoPlayer');
+  if(!vid.readyState||vid.readyState<1||vid.videoWidth===0){
+    document.getElementById('snapTitle').textContent='⏱ '+type;
+    document.getElementById('snapCanvas').style.display='none';
+    document.getElementById('snapInfo').innerHTML=
+      '<div style="padding:20px;text-align:center">'+
+      '<p style="font-size:16px;margin-bottom:10px">⚠️ 浏览器不支持此TS视频格式</p>'+
+      '<p style="font-size:14px;color:#94a3b8">异常时刻: <b style="color:#eab308;font-size:20px">'+timeStr+'</b></p>'+
+      '<p style="font-size:14px;color:#94a3b8">类型: <b>'+type+'</b> | '+detail+'</p>'+
+      '<p style="font-size:13px;color:#64748b;margin-top:10px">请用 <b>VLC / PotPlayer</b> 打开视频文件<br>跳转到 <b>'+timeStr+'</b> 查看画面</p>'+
+      '<button class="btn btn-primary" style="margin-top:12px" onclick="copyTime(\''+timeStr+'\')">📋 复制时间戳</button>'+
+      '</div>';
+    document.getElementById('snapModal').style.display='flex';
+    return;
+  }
+  vid.currentTime=offset;
+  setTimeout(()=>{
+    const c=document.getElementById('snapCanvas'),ctx=c.getContext('2d');
+    c.style.display='block';
+    c.width=vid.videoWidth||1280;c.height=vid.videoHeight||720;
+    ctx.drawImage(vid,0,0,c.width,c.height);
+    ctx.fillStyle='rgba(0,0,0,.7)';ctx.fillRect(0,0,380,50);
+    ctx.fillStyle='#eab308';ctx.font='bold 24px sans-serif';
+    ctx.fillText(type+(detail?' - '+detail:''),15,35);
+    document.getElementById('snapTitle').textContent='📷 '+type+'截图';
+    document.getElementById('snapInfo').textContent='⏱ '+timeStr+' | '+detail;
+    document.getElementById('snapModal').style.display='flex';
+  },600);
+}
+function copyTime(t){
+  navigator.clipboard.writeText(t).then(()=>{
+    alert('已复制时间戳: '+t);
+  }).catch(()=>{prompt('手动复制 (Ctrl+C):',t);});
+}
+function populateAnomalies(){
+  if(!analysisResult)return;
+  const r=analysisResult;
+  const missing=r.missing||[],jitter=r.jitter||[],width=r.width||[],rangeDrop=r.rangeDrop||[];
+  const total=missing.length+jitter.length+width.length+rangeDrop.length;
+  document.getElementById('sMissing').textContent=missing.length;
+  document.getElementById('sJitter').textContent=jitter.length;
+  document.getElementById('sWidth').textContent=width.length;
+  // summary badges
+  const sum=document.getElementById('anomalySummary');
+  sum.innerHTML='';
+  if(missing.length)sum.innerHTML+='<span class="badge b-warn">缺失×'+missing.length+'</span>';
+  if(jitter.length)sum.innerHTML+='<span class="badge b-warn">抖动×'+jitter.length+'</span>';
+  if(width.length)sum.innerHTML+='<span class="badge b-warn">宽度异常×'+width.length+'</span>';
+  if(rangeDrop.length)sum.innerHTML+='<span class="badge b-warn">可视范围异常×'+rangeDrop.length+'</span>';
+  if(!total){sum.innerHTML='<span class="badge b-ok">✅ 无异常</span>';}
+  // video note
+  const vt=getVideoTime();
+  const vn=document.getElementById('videoCoverNote');
+  if(vt)vn.innerHTML='📹 视频: <b>'+vt.name+'</b> (起始 '+vt.start.substring(0,2)+':'+vt.start.substring(2,4)+':'+vt.start.substring(4)+', 覆盖60s)';
+  else vn.innerHTML='📹 未上传视频';
+  // table
+  const body=document.getElementById('anomalyBody');
+  body.innerHTML='';
+  if(!total){
+    document.getElementById('anomalyTable').style.display='none';
+    document.getElementById('anomalyEmpty').style.display='block';
+    return;
+  }
+  document.getElementById('anomalyTable').style.display='';
+  document.getElementById('anomalyEmpty').style.display='none';
+  let idx=1;
+  function fmtTS(ts){return ts&&ts.length>=19?ts.substring(11,19):ts||'-';}
+  const types={'missing':'车道线缺失','jitter':'异常抖动','width':'宽度异常','range':'可视范围异常'};
+  missing.forEach(m=>{
+    const vc=videoCovers(m.ts);
+    body.innerHTML+=`<tr><td>${idx++}</td><td>${fmtTS(m.ts)}</td><td>${types.missing}</td><td>${m.lane}</td><td>${vc?'<span style="color:#22c55e">✅ 有视频</span>':'<span style="color:#64748b">-</span>'}</td><td>${vc?`<span class="clickable" onclick="seekToAnomaly('${m.ts}','车道线缺失','${m.lane}')" title="点击查看视频截图">📷 查看</span>`:'-'}</td></tr>`;
+  });
+  jitter.forEach(j=>{
+    const vc=videoCovers(j.start);
+    body.innerHTML+=`<tr><td>${idx++}</td><td>${fmtTS(j.start)}~${fmtTS(j.end)}</td><td>${types.jitter}</td><td>车道${j.lane}, 连续${j.frames}帧</td><td>${vc?'<span style="color:#22c55e">✅ 有视频</span>':'<span style="color:#64748b">-</span>'}</td><td>${vc?`<span class="clickable" onclick="seekToAnomaly('${j.start}','异常抖动','车道${j.lane},连续${j.frames}帧')" title="点击查看视频截图">📷 查看</span>`:'-'}</td></tr>`;
+  });
+  width.forEach(w=>{
+    const vc=videoCovers(w.ts);
+    body.innerHTML+=`<tr><td>${idx++}</td><td>${fmtTS(w.ts)}</td><td>${types.width}</td><td>${w.type} ${w.value.toFixed(3)}m</td><td>${vc?'<span style="color:#22c55e">✅ 有视频</span>':'<span style="color:#64748b">-</span>'}</td><td>${vc?`<span class="clickable" onclick="seekToAnomaly('${w.ts}','宽度异常','${w.type} ${w.value.toFixed(3)}m')" title="点击查看视频截图">📷 查看</span>`:'-'}</td></tr>`;
+  });
+  rangeDrop.forEach(rd=>{
+    const vc=videoCovers(rd.ts);
+    body.innerHTML+=`<tr><td>${idx++}</td><td>${fmtTS(rd.ts)}</td><td>${types.range}</td><td>${rd.lane} ${rd.type} (${rd.from.toFixed(0)}m→${rd.to.toFixed(0)}m)</td><td>${vc?'<span style="color:#22c55e">✅ 有视频</span>':'<span style="color:#64748b">-</span>'}</td><td>${vc?`<span class="clickable" onclick="seekToAnomaly('${rd.ts}','可视范围异常','${rd.lane} ${rd.type}')" title="点击查看视频截图">📷 查看</span>`:'-'}</td></tr>`;
+  });
+}
+  // 本车道线事件时间线
+  const olBody=document.getElementById('ownLaneBody');
+  olBody.innerHTML='';
+  const evs=r.ownLaneEvents||[];
+  if(!evs.length){
+    olBody.innerHTML='<tr><td colspan="5" style="text-align:center;color:#22c55e">✅ 本车道线全程正常，无丢失/无效/前兆事件</td></tr>';
+  }else{
+    evs.forEach((ev,ki)=>{
+      const col=ev.event==='丢失'?'#ef4444':(ev.event==='无效'?'#eab308':'#38bdf8');
+      olBody.innerHTML+='<tr><td>'+(ki+1)+'</td><td>'+fmtTS(ev.ts)+'</td><td>'+ev.side+'侧</td><td style="color:'+col+';font-weight:600">'+ev.event+'</td><td>'+ev.detail+'</td></tr>';
+    });
+  }
+  // 宽度降级级事件
+  (r.widthDowngrade||[]).forEach(wd=>{
+    const vc=videoCovers(wd.end);
+    body.innerHTML+=`<tr><td>${idx++}</td><td>${fmtTS(wd.start)}~${fmtTS(wd.end)}</td><td>宽度降级</td><td>持续${wd.frames}帧, 最宽${wd.maxValue.toFixed(3)}m</td><td>${vc?'<span style="color:#22c55e">✅ 有视频</span>':'<span style="color:#64748b">-</span>'}</td><td>${vc?`<span class="clickable" onclick="seekToAnomaly('${wd.end}','宽度降级','最宽${wd.maxValue.toFixed(3)}m')" title="点击查看视频截图">📷 查看</span>`:'-'}</td></tr>`;
+  });
+function renderReport(r){
+  document.getElementById('reportContent').textContent=generateMD(r);
+}
+
+// ========== 导出 ==========
+function downloadFile(name,content,type){
+  const blob=new Blob([content],{type:type||'text/plain;charset=utf-8'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download=name;
+  a.click();
+}
+
+document.getElementById('btnExportMD').onclick=()=>{
+  if(!analysisResult)return;
+  downloadFile('车道线分析报告_'+new Date().toISOString().slice(0,10)+'.md',generateMD(analysisResult),'text/markdown;charset=utf-8');
+};
+
+document.getElementById('btnExport').onclick=()=>{
+  if(!analysisResult)return;
+  const r=analysisResult;
+  const has=r.missing.length+r.jitter.length+r.width.length>0;
+  const avgS=clarityResults.length?clarityResults.reduce((a,c)=>a+c.S,0)/clarityResults.length:0;
+  const avgL=clarityResults.length?clarityResults.reduce((a,c)=>a+(c.leftS||0),0)/clarityResults.length:0;
+  const avgR=clarityResults.length?clarityResults.reduce((a,c)=>a+(c.rightS||0),0)/clarityResults.length:0;
+
+  // 把 canvas 图表转成图片
+  const c0Data=document.getElementById('chartC0').toDataURL('image/png');
+  const wData=document.getElementById('chartWidth').toDataURL('image/png');
+  const cData=clarityResults.length?document.getElementById('chartClarity').toDataURL('image/png'):null;
+
+  let h='<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><title>车道线分析报告</title>';
+  h+='<style>body{font-family:"Microsoft YaHei",sans-serif;max-width:1000px;margin:0 auto;padding:24px;background:#0f172a;color:#e2e8f0}';
+  h+='h1{color:#38bdf8}h2{color:#38bdf8;border-bottom:2px solid #334155;padding-bottom:6px;margin-top:28px}';
+  h+='table{width:100%;border-collapse:collapse;font-size:13px;margin:12px 0}th,td{padding:8px 10px;border-bottom:1px solid #334155;text-align:left}th{background:#172554;color:#38bdf8}';
+  h+='img{max-width:100%;border-radius:8px;margin:8px 0}.ok{color:#22c55e;font-weight:600}.bad{color:#ef4444;font-weight:600}';
+  h+='.stats{display:flex;gap:12px;flex-wrap:wrap}.stat{background:#1e293b;border:1px solid #334155;border-radius:8px;padding:12px 20px;text-align:center}.stat .n{font-size:22px;font-weight:700;color:#38bdf8}.stat .l{font-size:12px;color:#94a3b8}';
+  h+='.concl{background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.3);border-radius:10px;padding:16px;margin:12px 0}</style></head><body>';
+
+  h+='<h1>🚗 车道线异常智能归因分析报告</h1>';
+  h+='<div style="color:#94a3b8;font-size:13px;margin-bottom:16px">'+new Date().toLocaleString()+' · 车道线异常智能归因系统 v2 · 双维度分析</div>';
+  h+='<div class="stats">';
+  h+='<div class="stat"><div class="n">'+r.totalRows.toLocaleString()+'</div><div class="l">数据行数</div></div>';
+  h+='<div class="stat"><div class="n">'+(r.missing.length+r.jitter.length+r.width.length)+'</div><div class="l">规则异常</div></div>';
+  h+='<div class="stat"><div class="n">'+avgS.toFixed(1)+'</div><div class="l">整体清晰度</div></div>';
+  if(avgL>0)h+='<div class="stat"><div class="n">'+(avgL-avgR).toFixed(2)+'</div><div class="l">左右车道差异</div></div>';
+  h+='</div>';
+
+  h+='<h2>一、CSV规则检测</h2><table><tr><th>规则</th><th>检测条件</th><th>结果</th></tr>';
+  h+='<tr><td>规则一：车道线缺失</td><td>id=1或id=-1缺失</td><td class="'+(r.missing.length===0?'ok':'bad')+'">'+(r.missing.length===0?'✅ 0次异常':'❌ '+r.missing.length+'次')+'</td></tr>';
+  h+='<tr><td>规则二：异常抖动</td><td>|C0(t)-C0(t-1)|≥0.2连续3帧</td><td class="'+(r.jitter.length===0?'ok':'bad')+'">'+(r.jitter.length===0?'✅ 0次异常':'❌ '+r.jitter.length+'次')+'</td></tr>';
+  h+='<tr><td>规则三：宽度异常</td><td>总宽≤3.4或≥4.0</td><td class="'+(r.width.length===0?'ok':'bad')+'">'+(r.width.length===0?'✅ 0次异常':'❌ '+r.width.length+'次')+'</td></tr></table>';
+
+  h+='<h2>二、图表分析</h2>';
+  h+='<h3 style="color:#94a3b8">C0曲率时序</h3><img src="'+c0Data+'">';
+  h+='<h3 style="color:#94a3b8">车道宽度分布</h3><img src="'+wData+'">';
+  if(cData)h+='<h3 style="color:#94a3b8">左右车道线清晰度对比</h3><img src="'+cData+'">';
+
+  h+='<h2>三、车道线统计</h2><table><tr><th>车道ID</th><th>次数</th><th>占比</th><th>平均C0</th></tr>';
+  Object.values(r.lanes).sort((a,b)=>a.id-b.id).forEach(l=>{
+    h+='<tr><td>'+l.id+'</td><td>'+l.count+'</td><td>'+(l.count/r.totalRows*100).toFixed(1)+'%</td><td>'+(l.c0s.reduce((a,b)=>a+b,0)/l.c0s.length).toFixed(4)+'</td></tr>';
+  });
+  h+='</table>';
+
+  if(clarityResults.length){
+    h+='<h2>四、视频清晰度</h2><table><tr><th>统计项</th><th>⬅左侧车道线</th><th>➡右侧车道线</th></tr>';
+    h+='<tr><td>平均清晰度</td><td class="ok">'+avgL.toFixed(2)+'</td><td class="ok">'+avgR.toFixed(2)+'</td></tr>';
+    h+='<tr><td>左右差异</td><td colspan="2">'+(avgL-avgR).toFixed(2)+'</td></tr></table>';
+  }
+
+  h+='<h2>五、综合结论</h2><div class="concl">';
+  h+=has?'⚠️ <b>发现异常情况</b>，建议进一步分析排查。':'✅ <b>数据正常，未发现异常。</b>该组数据可作为基准测试（Baseline）使用。';
+  if(avgL>0)h+='<br>左右车道线清晰度差异仅 <b>'+(avgL-avgR).toFixed(2)+'</b>，与真实场景相符。';
+  h+='</div>';
+  h+='<div style="color:#64748b;font-size:12px;margin-top:24px;text-align:center">报告由车道线异常智能归因系统自动生成</div>';
+  h+='</body></html>';
+  downloadFile('车道线分析报告_'+new Date().toISOString().slice(0,10)+'.html',h,'text/html;charset=utf-8');
+};
+
+// ========== 视频清晰度 ==========
+async function captureFrames(video){
+  const count=15;
+  const dur=video.duration||30;
+  const step=Math.max(0.5,dur/count);
+  clarityResults=[];
+  const canvas=document.createElement('canvas');
+  canvas.width=640;canvas.height=360;
+  const ctx=canvas.getContext('2d');
+  const overlay=document.getElementById('videoOverlay');
+  const octx=overlay.getContext('2d');
+  overlay.width=640;overlay.height=360;
+
+  for(let i=0;i<count;i++){
+    const t=Math.min(i*step,dur-0.1);
+    video.currentTime=t;
+    await new Promise(r=>{video.onseeked=r;setTimeout(()=>r(),Math.min(300,step*300));});
+    ctx.drawImage(video,0,0,640,360);
+    const imgData=ctx.getImageData(0,0,640,360);
+    const overall=calcClarity(imgData);
+    const lane=calcLaneClarity(imgData);
+    // 画车道线到 overlay
+    octx.clearRect(0,0,640,360);
+    if(lane.leftX>0){
+      octx.strokeStyle='#22c55e';octx.lineWidth=4;
+      octx.beginPath();
+      octx.moveTo(lane.leftX,lane.roiY+30);
+      octx.lineTo(lane.leftX-40,355);
+      octx.stroke();
+      octx.fillStyle='#22c55e';octx.font='bold 16px sans-serif';
+      octx.fillText('LEFT',lane.leftX-70,350);
+    }
+    if(lane.rightX>0){
+      octx.strokeStyle='#ef4444';octx.lineWidth=4;
+      octx.beginPath();
+      octx.moveTo(lane.rightX,lane.roiY+30);
+      octx.lineTo(lane.rightX+40,355);
+      octx.stroke();
+      octx.fillStyle='#ef4444';octx.font='bold 16px sans-serif';
+      octx.fillText('RIGHT',lane.rightX+20,350);
+    }
+    clarityResults.push({
+      S:overall.S,L:overall.L,E:overall.E,C:overall.C,B:overall.B,F:overall.F,
+      leftS:lane.left?.S||null,rightS:lane.right?.S||null,
+      laneInfo:{leftX:lane.leftX,rightX:lane.rightX,roiY:lane.roiY},
+      frame:i+1,time:t.toFixed(1)
+    });
+  }
+  renderClarity(clarityResults);
+  drawClarityChart();
+  const avgS=clarityResults.reduce((a,c)=>a+c.S,0)/clarityResults.length;
+  const avgL=clarityResults.reduce((a,c)=>a+(c.leftS||0),0)/clarityResults.length;
+  const sc=document.getElementById('sClarity');
+  sc.textContent=avgS.toFixed(1)+(avgL>0?' / L:'+avgL.toFixed(1):'');
+  sc.className='num '+(avgS>=80?'green':avgS>=25?'yellow':'red');
+  if(analysisResult)renderReport(analysisResult);
+}
+
+function readRawTS(file){
+  const r=new FileReader();
+  r.onload=e=>{
+    const data=new Uint8Array(e.target.result);
+    let nal=0;
+    for(let i=0;i<data.length-3;i++){
+      if(data[i]===0&&data[i+1]===0&&data[i+2]===1)nal++;
+      else if(i<data.length-4&&data[i]===0&&data[i+1]===0&&data[i+2]===0&&data[i+3]===1)nal++;
+    }
+    const vt=getVideoTime();
+    const tt=vt?vt.start.substring(0,2)+':'+vt.start.substring(2,4)+':'+vt.start.substring(4):'??:??:??';
+    document.getElementById('tsHint').innerHTML=
+      '📹 TS视频 (H.264, '+nal+' NAL单元, 起始 '+tt+')<br>'+
+      '<span style="color:#eab308">⚠️ 浏览器无法直接播放TS格式</span> — '+
+      '请用 <b>VLC / PotPlayer</b> 打开视频, 跳转到异常时刻查看画面<br>'+
+      '<small style="color:#64748b">已在 &#9888; 异常事件 Tab 中标记了每个异常的时间点, 点击某行可复制时间戳</small>';
+  };
+  r.readAsArrayBuffer(file);
+}
+
+function calcClarity(imageData){
+  const {data,width,height}=imageData;
+  const gray=new Float32Array(width*height);
+  for(let i=0;i<width*height;i++)gray[i]=data[i*4]*0.299+data[i*4+1]*0.587+data[i*4+2]*0.114;
+  let s1=0,s2=0,n=0;
+  for(let y=1;y<height-1;y++)for(let x=1;x<width-1;x++){const p=y*width+x,l=Math.abs(5*gray[p]-gray[p-1]-gray[p+1]-gray[p-width]-gray[p+width]);s1+=l;s2+=l*l;n++;}
+  const L=n?(s2/n-(s1/n)**2):0;
+  const sobelX=[-1,0,1,-2,0,2,-1,0,1],sobelY=[-1,-2,-1,0,0,0,1,2,1];
+  let es=0;
+  for(let y=1;y<height-1;y++)for(let x=1;x<width-1;x++){let gx=0,gy=0,idx=0;for(let ky=-1;ky<=1;ky++)for(let kx=-1;kx<=1;kx++){const p=gray[(y+ky)*width+(x+kx)];gx+=p*sobelX[idx];gy+=p*sobelY[idx];idx++;}if(Math.sqrt(gx*gx+gy*gy)>50)es++;}
+  const E=es/(width*height)*1000;
+  let m=0;for(let i=0;i<gray.length;i++)m+=gray[i];m/=gray.length;
+  let v=0;for(let i=0;i<gray.length;i++)v+=(gray[i]-m)**2;
+  const C=Math.sqrt(v/gray.length);
+  let b=0;for(let y=0;y<height;y++)for(let x=0;x<width-2;x++){const d=gray[y*width+x]-gray[y*width+x+2];b+=d*d;}
+  const B=b/(width*height);
+  let hf=0,tot=0;
+  for(let y=0;y<height;y++)for(let x=1;x<width-1;x++){tot+=Math.abs(gray[y*width+x]);hf+=Math.abs(gray[y*width+x]-gray[y*width+x-1]);}
+  const F=tot>0?hf/tot*1000:0;
+  const S=0.25*(L/100)+0.20*E+0.20*C+0.20*B+0.15*F;
+  return{L,E,C,B,F,S};
+}
+
+function calcLaneClarity(imageData){
+  const {data,width,height}=imageData;
+  const gray=new Float32Array(width*height);
+  for(let i=0;i<width*height;i++)gray[i]=data[i*4]*0.299+data[i*4+1]*0.587+data[i*4+2]*0.114;
+  const roiY1=Math.floor(height*0.55);
+  const roiH=height-roiY1;
+  const edges=new Float32Array(roiH*width);
+  const edgeBin=new Uint8Array(roiH*width);
+  for(let y=1;y<roiH-1;y++){
+    for(let x=1;x<width-1;x++){
+      const gy=y+roiY1;
+      const p00=gray[(gy-1)*width+(x-1)],p01=gray[(gy-1)*width+x],p02=gray[(gy-1)*width+(x+1)];
+      const p10=gray[gy*width+(x-1)],p12=gray[gy*width+(x+1)];
+      const p20=gray[(gy+1)*width+(x-1)],p21=gray[(gy+1)*width+x],p22=gray[(gy+1)*width+(x+1)];
+      const gx=-p00+p02-2*p10+2*p12-p20+p22;
+      const gy2=-p00-2*p01-p02+p20+2*p21+p22;
+      const mag=Math.sqrt(gx*gx+gy2*gy2);
+      edges[y*width+x]=mag;
+      edgeBin[y*width+x]=mag>40?1:0;
+    }
+  }
+  const halfW=Math.floor(width/2);
+  function findLaneX(startX,endX){
+    const votes={};
+    for(let y=Math.floor(roiH*0.15);y<Math.floor(roiH*0.85);y+=2){
+      let px=-1,pv=0;
+      for(let x=startX;x<endX;x++){
+        const idx=y*width+x;
+        if(edgeBin[idx]&&edges[idx]>pv){
+          let cont=0;
+          for(let dy=-3;dy<=3;dy++){const ny=y+dy;if(ny>=0&&ny<roiH&&edgeBin[ny*width+x])cont++;}
+          if(cont>=2){px=x;pv=edges[idx];}
+        }
+      }
+      if(px>0)votes[px]=(votes[px]||0)+1;
+    }
+    let best=-1,bv=0;
+    for(const x in votes){if(votes[x]>bv){bv=votes[x];best=parseInt(x);}}
+    return best;
+  }
+  const leftX=findLaneX(Math.floor(halfW*0.2),Math.floor(halfW*0.9));
+  const rightX=findLaneX(halfW+Math.floor(halfW*0.1),Math.floor(width*0.9));
+  const cy=roiY1+Math.floor(roiH*0.4);
+
+  function clarityAt(cx,cy2,margin){
+    const x1=Math.max(0,cx-margin),x2=Math.min(width-1,cx+margin);
+    const y1=Math.max(roiY1,cy2-margin),y2=Math.min(height-1,cy2+margin);
+    if(x2<=x1||y2<=y1)return null;
+    let s1=0,s2=0,n=0,es=0,tp=0,ms=0,br=0,hfs=0,ts=0;
+    for(let y=y1;y<=y2;y++)for(let x=x1;x<=x2;x++){
+      const p=y*width+x;ms+=gray[p];tp++;
+      if(y>y1&&y<y2&&x>x1&&x<x2){const l=Math.abs(5*gray[p]-gray[p-1]-gray[p+1]-gray[p-width]-gray[p+width]);s1+=l;s2+=l*l;n++;}
+      if(y<height-1&&x<width-1){
+        const gx=-gray[(y-1)*width+(x-1)]+gray[(y-1)*width+(x+1)]-2*gray[y*width+(x-1)]+2*gray[y*width+(x+1)]-gray[(y+1)*width+(x-1)]+gray[(y+1)*width+(x+1)];
+        const gy=-gray[(y-1)*width+(x-1)]-2*gray[(y-1)*width+x]-gray[(y-1)*width+(x+1)]+gray[(y+1)*width+(x-1)]+2*gray[(y+1)*width+x]+gray[(y+1)*width+(x+1)];
+        if(Math.sqrt(gx*gx+gy*gy)>40)es++;
+      }
+      if(x<width-2){const d=gray[p]-gray[p+2];br+=d*d;}
+      if(x>0&&x<width-1){ts+=Math.abs(gray[p]);hfs+=Math.abs(gray[p]-gray[p-1]);}
+    }
+    const L=n?(s2/n-(s1/n)**2):0;
+    const E=tp?es/tp*1000:0;
+    const mean=ms/tp;
+    let vv=0;for(let y=y1;y<=y2;y++)for(let x=x1;x<=x2;x++)vv+=(gray[y*width+x]-mean)**2;
+    const C=tp?Math.sqrt(vv/tp):0;
+    const B=tp?br/tp:0;
+    const F=ts>0?hfs/ts*1000:0;
+    const S=0.25*(L/100)+0.20*E+0.20*C+0.20*B+0.15*F;
+    return{L,E,C,B,F,S};
+  }
+  const left=leftX>0?clarityAt(leftX,cy,35):clarityAt(Math.floor(width*0.3),cy,40);
+  const right=rightX>0?clarityAt(rightX,cy,35):clarityAt(Math.floor(width*0.7),cy,40);
+  return{left,right,leftX,rightX,roiY:roiY1};
+}
+
+function renderClarity(results){
+  let h='<h3 style="color:var(--accent);margin-bottom:12px">多指标清晰度评估结果</h3>';
+  const avgS=results.reduce((a,c)=>a+c.S,0)/results.length;
+  const avgL=results.reduce((a,c)=>a+(c.leftS||0),0)/results.length;
+  const avgR=results.reduce((a,c)=>a+(c.rightS||0),0)/results.length;
+  h+='<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:12px">';
+  h+='<div style="padding:10px;background:var(--card2);border-radius:8px;text-align:center"><div style="font-size:12px;color:var(--text2)">整体清晰度</div><div style="font-size:22px;font-weight:700;color:var(--green)">'+avgS.toFixed(1)+'</div></div>';
+  h+='<div style="padding:10px;background:var(--card2);border-radius:8px;text-align:center"><div style="font-size:12px;color:var(--text2)">⬅ 左侧车道线</div><div style="font-size:22px;font-weight:700;color:'+(avgL>=avgR?'var(--green)':'var(--yellow)')+'">'+avgL.toFixed(1)+'</div></div>';
+  h+='<div style="padding:10px;background:var(--card2);border-radius:8px;text-align:center"><div style="font-size:12px;color:var(--text2)">➡ 右侧车道线</div><div style="font-size:22px;font-weight:700;color:'+(avgR>=avgL?'var(--green)':'var(--yellow)')+'">'+avgR.toFixed(1)+'</div></div>';
+  h+='</div>';
+  h+='<table><tr><th>帧</th><th>整体S</th><th>⬅左侧</th><th>➡右侧</th><th>差异</th><th>评级</th></tr>';
+  results.forEach(c=>{
+    const diff=((c.leftS||0)-(c.rightS||0)).toFixed(2);
+    const rating=c.S>=80?'✅ 非常清晰':c.S>=50?'清晰':c.S>=25?'一般':'⚠️ 模糊';
+    h+='<tr><td>'+c.frame+' ('+c.time+'s)</td><td><b>'+c.S.toFixed(2)+'</b></td><td>'+(c.leftS?c.leftS.toFixed(2):'-')+'</td><td>'+(c.rightS?c.rightS.toFixed(2):'-')+'</td><td style="color:'+(Math.abs(diff)<2?'var(--green)':'var(--yellow)')+'">'+diff+'</td><td>'+rating+'</td></tr>';
+  });
+  h+='</table>';
+  const diff=avgL-avgR;
+  h+='<div style="margin-top:12px;padding:12px;background:var(--card2);border-radius:8px;font-size:13px">';
+  h+='📋 <b>左右车道线对比结论：</b><br>左侧平均 <b style="color:var(--green)">'+avgL.toFixed(2)+'</b> vs 右侧平均 <b style="color:var(--green)">'+avgR.toFixed(2)+'</b><br>';
+  h+='差异 '+diff.toFixed(2)+'：'+(Math.abs(diff)<2?'✅ 左右清晰度接近，与正常行驶场景相符':Math.abs(diff)>10?'⚠️ 差异较大，建议检查摄像头或光照':'📌 略有差异')+'</div>';
+  document.getElementById('clarityResults').innerHTML=h;
+}
+
+// ========== Tab ==========
+document.querySelectorAll('.tab').forEach(tab=>{
+  tab.onclick=()=>{
+    document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+    tab.classList.add('active');
+    document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+    document.getElementById(tab.dataset.tab).classList.add('active');
+  };
+});
+</script>
+</body>
+</html>

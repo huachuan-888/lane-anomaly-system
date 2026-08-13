@@ -24,19 +24,19 @@ BASE = r"C:\Users\黄钦\Desktop\DF资料\ai 车道线分析"
 XLSX = os.path.join(BASE, "V1.1.6版本测试问题.xlsx")
 CSV_DIR = os.path.join(BASE, "同类型CSV_lane_mark_camera_list_1")
 VIDEO_DIR = os.path.join(BASE, "视频")
-OUT_DIR = os.path.join(BASE, "自动复核输出")
+OUT_DIR = r"C:\Users\黄钦\Desktop\DF资料\ai 车道线分析\数据与工具\AI分析工具\自动复核输出"
 
 FPS = 25
 HEAD_OFFSET = 3
 WINDOW = 30
 
 # 复用主脚本的分析函数
-sys.path.insert(0, BASE)
+sys.path.insert(0, r"C:\Users\黄钦\Desktop\DF资料\ai 车道线分析\数据与工具\AI分析工具")
 from 车道线自动复核 import (
     parse_time_str, sec_to_hms, find_csv, find_video,
     scan_errors, read_frames_sequential, frame_to_b64,
     clarity_score, dual_check, detect_lane_in_frame,
-    scene_detect, filter_problem, CONFIG,
+    scene_detect, filter_problem, build_lost_chains, CONFIG,
 )
 
 app = Flask(__name__)
@@ -94,6 +94,7 @@ def analyze_problem(p):
         "problem": p,
         "csv": None, "video": None,
         "points": [], "frame_b64s": {},
+        "lost_chains": [],
         "csv_ok": False, "video_ok": False,
     }
     if p["sec"] is None or not p["date"]:
@@ -104,6 +105,8 @@ def analyze_problem(p):
         result["csv"] = os.path.basename(csv_path)
         result["csv_ok"] = True
         result["points"] = scan_errors(csv_path, p["sec"], WINDOW)
+        # 规则五: 丢失事件链
+        result["lost_chains"] = build_lost_chains(result["points"]) if result["points"] else []
     # 视频定位
     video_path, vstart = find_video(VIDEO_DIR, CONFIG["video_date_map"], p["date"], p["sec"])
     if video_path:

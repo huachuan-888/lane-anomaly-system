@@ -35,7 +35,9 @@ h1{font-size:22px;margin-bottom:4px}
 .frame .clr{font-size:10px;color:var(--green)}
 .nodata{background:#243349;border:1px dashed var(--border);border-radius:8px;padding:20px;text-align:center;color:var(--text2)}
 .ev-collapsed{display:none}.btn{background:var(--blue);color:#fff;border:none;padding:8px 16px;border-radius:8px;font-size:13px;cursor:pointer;text-decoration:none;display:inline-block}
-.nav-top{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+.chain-item{display:inline-block;font-size:12px;padding:6px 12px;border-radius:6px;font-weight:600;margin:4px}
+.chain-warn{background:rgba(56,189,248,.15);color:var(--blue)}
+.chain-burst{background:rgba(239,68,68,.15);color:var(--red)}.nav-top{display:flex;align-items:center;gap:10px;margin-bottom:14px}
 .nav-top .btn{padding:8px 16px}
 .btn.gray{background:#334155}
 .nav-pos{color:var(--text2);font-size:13px;font-weight:600}
@@ -130,5 +132,20 @@ window.addEventListener('load', () => {
   document.getElementById('loading').style.display = 'none';
 });
 </script>
+<!-- 规则五: 丢失事件链 -->
+<div class="card" id="lost-chains-card">
+  <h3>🔗 丢失事件链 (规则五)</h3>
+  {% if r.lost_chains %}
+    {% for ch in r.lost_chains %}
+    <div class="chain-item {{ 'chain-warn' if ch.has_warning else 'chain-burst' }}">
+      {{ ch.side }}侧 {{ ch.start|hms }}~{{ ch.end|hms }} 持续{{ ch.duration_s }}s
+      ({{ '🔵 有前兆' if ch.has_warning else '🔴 突发' }})
+    </div>
+    {% endfor %}
+  {% else %}
+    <div class="nodata" style="padding:10px">✅ 无丢失事件</div>
+  {% endif %}
+</div>
+
 </body>
 </html>
