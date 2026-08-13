@@ -212,8 +212,54 @@ python 车道线自动复核.py --keywords "车道线,压线"
 ├── 车道线自动复核.py      # 命令行批量复核流水线
 ├── 判断标准.txt          # 异常判定规则依据（规则一~五）
 └── 车道线分析工具/
-    ├── index.html       # 离线分析工具
-    └── analyze_pipeline.py
+│   ├── index.html       # 离线分析工具
+│   └── analyze_pipeline.py
+└── skills/
+    └── html-visual-report/   # Hermes AI Agent 技能（见下节）
+        ├── SKILL.md          # 技能说明书
+        ├── scripts/
+        │   ├── generate_report.py   # 技能入口（--data/--out）
+        │   ├── reference_engine.py  # 完整分析引擎
+        │   └── setup_env.py         # 环境自动配置
+        ├── references/
+        │   ├── csv-video-time-alignment.md
+        │   └── 判断标准.txt
+        └── assets/report_style.css
+```
+
+---
+
+## 🤖 Hermes AI Agent 技能（html-visual-report）
+
+> **新增技能**：把整套分析流程封装成 Hermes 技能，一句话即可生成与 Web/命令行**同款效果**的 HTML 报告。
+
+### 功能
+
+| 能力 | 说明 |
+|------|------|
+| **问题表驱动** | 读 xlsx（33问题→20车道线相关→211错误点）|
+| **完整分析** | CSV规则检测 + 视频抽帧（322张）+ 双维度校验 + 规则五事件链 |
+| **场景识别** | 天气（晴/阴/小雨）+ 道路环境（隧道/弯道/分合流/鱼骨线）|
+| **画面侧丢失** | 画面只检测到单侧线 → 追加 `画面X侧丢失` 独立标签 |
+| **时间对齐** | 截图时间与问题时间逐秒对应（b0s=问题时刻）|
+| **自包含输出** | 单个 HTML 文件（base64 内嵌，离线可开）|
+
+### 使用
+
+```powershell
+# 方式A: 指定数据根目录（含 xlsx/CSV/视频）
+python skills/html-visual-report/scripts/generate_report.py --data "数据根目录" --out "报告.html"
+
+# 方式B: 上传数据（保存到本地后同方式A）
+# 方式C: 直接对 Hermes 说 "生成报告" / "分析这批车道线数据"
+```
+
+### 安装到 Hermes
+
+```powershell
+# 把 skills/html-visual-report 复制到 Hermes 技能目录:
+#   <hermes-home>/skills/html-visual-report/
+# 或通过 Hermes UI 的技能管理加载
 ```
 
 ---
