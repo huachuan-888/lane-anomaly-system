@@ -325,3 +325,32 @@ python skills/html-visual-report/scripts/generate_report.py --data "鏁版嵁鏍圭洰
 ## 馃搫 License
 
 MIT
+
+---
+
+## ??? 桌面版 exe（免安装）
+
+把 Web 系统打包为独立 exe（PyInstaller），**无需安装 Python**，双击即用：
+
+`
+桌面版exe/车道线归因系统/
+├── 车道线归因系统.exe   ← 双击启动
+├── _internal/           ← 运行库（与exe一起拷贝）
+└── 数据/                ← 数据放这里（可选，自动探测）
+    ├── V1.1.6版本测试问题.xlsx
+    ├── 同类型CSV_lane_mark_camera_list_1/
+    └── 视频/
+`
+
+- **自动探测数据**：exe 启动时自动找「exe旁/数据/」→「exe所在目录」→ 旧路径
+- **自动打开浏览器**：启动 2 秒后自动打开 http://127.0.0.1:5000/
+- **任意目录结构**：CSV/视频自动递归发现，不依赖固定路径
+- **展开全部错误点**：默认折叠前3个，点击「展开全部」显示所有错误点（含截图）
+
+## ?? 命令行版本（三方案）
+
+| 方案 | 命令 | 说明 |
+|------|------|------|
+| 全量复核 | python 车道线自动复核.py | 问题表驱动，自动检测数据目录 |
+| 单CSV分析 | python 车道线分析工具/analyze_pipeline.py | 自动检测当前目录CSV+匹配视频 |
+| Hermes技能 | skills/html-visual-report/ | AI自动生成报告 |
