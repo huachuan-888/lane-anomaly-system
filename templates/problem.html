@@ -86,7 +86,7 @@ h1{font-size:22px;margin-bottom:4px}
   {% if not r.points %}
     <div class="nodata">✅ 该问题 ±{{ 30 }}s 窗口内未检出异常</div>
   {% else %}
-    {% for pt in r.points[:10] %}
+    {% for pt in r.points %}
     <div class="event {% if loop.index > 3 %}ev-collapsed{% endif %}">
       <div class="ev-head">
         <span class="ev-idx">b{{ loop.index }}</span>
@@ -112,8 +112,8 @@ h1{font-size:22px;margin-bottom:4px}
       {% endif %}
     </div>
     {% endfor %}
-    {% if r.points|length > 10 %}<p style="color:var(--text2);font-size:12px;margin-top:8px">… 还有 {{ r.points|length - 10 }} 个错误点未显示</p>{% endif %}
-    {% if r.points|length > 3 %}<div style="text-align:center;margin-top:10px"><button class="btn" onclick="toggleAll()" id="toggleBtn">展开全部 {{ r.points[:10]|length }} 个错误点</button></div>{% endif %}
+    {% if r.points|length > 3 %}<p style="color:var(--text2);font-size:12px;margin-top:8px">… 还有 {{ r.points|length - 3 }} 个错误点已折叠</p>{% endif %}
+    {% if r.points|length > 3 %}<div style="text-align:center;margin-top:10px"><button class="btn" onclick="toggleAll()" id="toggleBtn">展开全部 {{ r.points|length }} 个错误点</button></div>{% endif %}
   {% endif %}
 </div>
 
@@ -123,7 +123,10 @@ h1{font-size:22px;margin-bottom:4px}
 let allExpanded = false;
 function toggleAll() {
   allExpanded = !allExpanded;
-  document.querySelectorAll('.ev-collapsed').forEach(el => { el.style.display = allExpanded ? '' : 'none'; });
+  document.querySelectorAll('.ev-collapsed').forEach(el => {
+    // 必须显式设 block, 设 '' 会回退到 CSS 的 display:none 导致没反应
+    el.style.display = allExpanded ? 'block' : 'none';
+  });
   document.getElementById('toggleBtn').textContent = allExpanded ? '收起多余错误点' : '展开全部错误点';
 }
 </script>

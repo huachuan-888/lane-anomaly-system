@@ -20,18 +20,55 @@ from flask import Flask, render_template, request, jsonify, send_from_directory
 from werkzeug.utils import secure_filename
 
 # ==================== 路径配置 ====================
-BASE = r"C:\Users\黄钦\Desktop\DF资料\ai 车道线分析"
-XLSX = os.path.join(BASE, "V1.1.6版本测试问题.xlsx")
+# 数据目录自动探测 (适配 exe 分发到新电脑):
+#   1. 环境变量 LANE_BASE (用户自定义)
+#   2. exe 所在目录下的 "数据" 子目录 (推荐: 数据放 exe 旁边)
+#   3. exe 所在目录本身 (直接把 xlsx/csv/视频 放 exe 旁)
+#   4. 旧硬编码路径 (本机开发环境)
+def _find_base():
+    # 1. 环境变量优先
+    env = os.environ.get("LANE_BASE")
+    if env and os.path.exists(os.path.join(env, "V1.1.6版本测试问题.xlsx")):
+        return env
+    # exe 所在目录 (PyInstaller 打包后 sys.executable 是 exe 路径)
+    exe_dir = os.path.dirname(os.path.abspath(sys.executable)) if getattr(sys, "frozen", False) else os.getcwd()
+    # 2. exe 旁 "数据" 子目录
+    cand = os.path.join(exe_dir, "数据")
+    if os.path.exists(os.path.join(cand, "V1.1.6版本测试问题.xlsx")):
+        return cand
+    # 3. exe 所在目录本身
+    if os.path.exists(os.path.join(exe_dir, "V1.1.6版本测试问题.xlsx")):
+        return exe_dir
+    # 4. 旧硬编码路径 (本机)
+    old = r"C:\Users\黄钦\Desktop\DF资料\ai 车道线分析"
+    if os.path.exists(os.path.join(old, "V1.1.6版本测试问题.xlsx")):
+        return old
+    # 都没找到: 提示用户 (仍返回 exe 目录, 让错误信息更友好)
+    return exe_dir
+
+
+BASE = _find_base()
+# 问题表自动发现: 固定名不存在时找 BASE 下任意 .xlsx
+_xlsx_candidate = os.path.join(BASE, "V1.1.6版本测试问题.xlsx")
+if not os.path.exists(_xlsx_candidate) and os.path.isdir(BASE):
+    for _f in os.listdir(BASE):
+        if _f.lower().endswith(".xlsx"):
+            _xlsx_candidate = os.path.join(BASE, _f)
+            break
+XLSX = _xlsx_candidate
 CSV_DIR = os.path.join(BASE, "同类型CSV_lane_mark_camera_list_1")
 VIDEO_DIR = os.path.join(BASE, "视频")
-OUT_DIR = r"C:\Users\黄钦\Desktop\DF资料\ai 车道线分析\数据与工具\AI分析工具\自动复核输出"
+OUT_DIR = os.path.join(os.path.dirname(os.path.abspath(sys.executable)) if getattr(sys, "frozen", False) else os.getcwd(), "分析输出")
 
 FPS = 25
 HEAD_OFFSET = 3
 WINDOW = 30
 
-# 复用主脚本的分析函数
-sys.path.insert(0, r"C:\Users\黄钦\Desktop\DF资料\ai 车道线分析\数据与工具\AI分析工具")
+# 复用主脚本的分析函数 (PyInstaller 打包后模块已在内部, 此 insert 仅源码运行用)
+if not getattr(sys, "frozen", False):
+    _tool_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    sys.path.insert(0, _tool_dir)
+import 车道线自动复核
 from 车道线自动复核 import (
     parse_time_str, sec_to_hms, find_csv, find_video,
     scan_errors, read_frames_sequential, frame_to_b64,
@@ -112,15 +149,16 @@ def analyze_problem(p):
     if video_path:
         result["video"] = os.path.basename(video_path)
         result["video_ok"] = True
-        # 对每个错误点抽帧 (b1当刻帧)
-        for pt in result["points"][:10]:
+        # 对每个错误点抽帧 (b1当刻帧) - 全部做双维度校验, 截图给前25个(对齐max_points, 展开全部可见)
+        for pt_i, pt in enumerate(result["points"]):
             base = pt["sec"] - vstart
-            # b1 ±1s 三张截图
+            # b1 ±1s 三张截图 (前25个错误点抽帧, 展开全部后都有画面)
             need = set()
-            for d in (-1, 0, 1):
-                fidx = int((base + d) * FPS) + HEAD_OFFSET
-                if 0 <= fidx < 2000:
-                    need.add(fidx)
+            if pt_i < 25:
+                for d in (-1, 0, 1):
+                    fidx = int((base + d) * FPS) + HEAD_OFFSET
+                    if 0 <= fidx < 2000:
+                        need.add(fidx)
             # 视频帧缓存: 同一视频只读一次, 所有问题复用
             if video_path not in _video_cache:
                 _video_cache[video_path] = {}
@@ -271,18 +309,45 @@ def api_upload():
 
 @app.route("/api/run_all")
 def api_run_all():
-    """调用批量复核脚本生成报告"""
-    import subprocess
-    r = subprocess.run(
-        [sys.executable, os.path.join(BASE, "车道线自动复核.py")],
-        capture_output=True, text=True, timeout=600, cwd=BASE
-    )
-    return jsonify({"ok": r.returncode == 0, "log": r.stdout[-2000:]})
+    """调用批量复核生成报告 (直接调用已import的引擎, 兼容 exe 打包)"""
+    try:
+        # 从 车道线自动复核 调用 main (已 import)
+        import io
+        import contextlib
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            车道线自动复核.main()
+        return jsonify({"ok": True, "log": buf.getvalue()[-2000:]})
+    except Exception as e:
+        return jsonify({"ok": False, "log": str(e)})
 
 
 if __name__ == "__main__":
     print("=" * 50)
-    print("🚗 车道线异常智能归因系统")
+    print("[车道线异常智能归因系统]")
     print("   访问: http://localhost:5000")
     print("=" * 50)
+    # exe 控制台 GBK 编码兼容: 忽略非 GBK 字符
+    import sys as _sys
+    try:
+        _sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
+    # 自动打开浏览器 (启动后 2 秒, 独立线程不阻塞服务)
+    import threading
+    import webbrowser
+
+    def _open_browser():
+        try:
+            import time
+            time.sleep(2)
+            webbrowser.open("http://127.0.0.1:5000/")
+            print("[提示] 已自动打开浏览器: http://127.0.0.1:5000/")
+            print("[提示] 关闭此窗口将停止服务")
+        except Exception:
+            pass
+
+    threading.Thread(target=_open_browser, daemon=True).start()
+
     app.run(host="127.0.0.1", port=5000, debug=False)

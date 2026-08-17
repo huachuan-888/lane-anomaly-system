@@ -35,9 +35,42 @@ import html as htmlmod
 import openpyxl
 
 # ==================== 配置区 ====================
+def _detect_base_dir():
+    """数据根目录自动探测 (适配任意目录结构, 不固定路径):
+    1. 环境变量 LANE_BASE
+    2. exe 所在目录下的 '数据' 子目录 (exe打包分发: 数据放exe旁)
+    3. exe 所在目录本身
+    4. 当前工作目录
+    5. 旧硬编码路径 (本机开发)
+    """
+    def _has_xlsx(d):
+        if os.path.exists(os.path.join(d, "V1.1.6版本测试问题.xlsx")):
+            return True
+        # 自动检测: 目录下有任何 .xlsx 也算
+        if os.path.isdir(d):
+            return any(f.lower().endswith(".xlsx") for f in os.listdir(d))
+        return False
+
+    env = os.environ.get("LANE_BASE")
+    if env and _has_xlsx(env):
+        return env
+    exe_dir = os.path.dirname(os.path.abspath(sys.executable)) if getattr(sys, "frozen", False) else os.getcwd()
+    cand = os.path.join(exe_dir, "数据")
+    if _has_xlsx(cand):
+        return cand
+    if _has_xlsx(exe_dir):
+        return exe_dir
+    if _has_xlsx(os.getcwd()):
+        return os.getcwd()
+    old = r"C:\Users\黄钦\Desktop\DF资料\ai 车道线分析"
+    if _has_xlsx(old):
+        return old
+    return exe_dir
+
+
 CONFIG = {
     # 数据路径
-    "base_dir": r"C:\Users\黄钦\Desktop\DF资料\ai 车道线分析",
+    "base_dir": _detect_base_dir(),
     "xlsx": "V1.1.6版本测试问题.xlsx",
     "csv_dir": "同类型CSV_lane_mark_camera_list_1",
     "video_dir": "视频",
@@ -111,7 +144,7 @@ def scene_detect(problem, cfg):
 
 def setup_dirs(base_dir):
     """建立标准输出目录结构"""
-    out_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "自动复核输出")
+    out_root = os.path.join(os.path.dirname(os.path.abspath(sys.executable)) if getattr(sys, "frozen", False) else os.path.dirname(os.path.abspath(__file__)), "自动复核输出")
     dirs = {
         "root": out_root,
         "reports": os.path.join(out_root, "reports"),
@@ -163,9 +196,26 @@ def filter_problem(desc, filter_cfg):
 
 # ==================== 模块2: 数据定位 (CSV) ====================
 def find_csv(csv_dir, date, sec):
-    """按日期+时刻匹配覆盖该时刻的CSV (10分钟窗口)"""
+    """按日期+时刻匹配覆盖该时刻的CSV (10分钟窗口)
+    csv_dir 不存在时自动在数据根目录递归查找 (适配任意目录结构)
+    """
     best = None
-    for c in glob.glob(os.path.join(csv_dir, "*.csv")):
+    if not os.path.isdir(csv_dir):
+        # 回退: 数据根目录递归找 CSV (自动检测当前文件夹数据)
+        base = os.path.dirname(csv_dir)
+        cands = []
+        for root, _, files in os.walk(base):
+            for f in files:
+                if f.lower().endswith(".csv"):
+                    cands.append(os.path.join(root, f))
+    else:
+        # 递归扫描 csv_dir 下所有 CSV (支持子目录)
+        cands = []
+        for root, _, files in os.walk(csv_dir):
+            for f in files:
+                if f.lower().endswith(".csv"):
+                    cands.append(os.path.join(root, f))
+    for c in cands:
         m = re.match(r"(\d{4}-\d{2}-\d{2})_(\d{2})-(\d{2})-(\d{2})", os.path.basename(c))
         if not m:
             continue
@@ -337,7 +387,11 @@ def build_lost_chains(points):
 
 # ==================== 模块4: 视频定位 ====================
 def find_video(video_dir, date_map, date, sec):
-    """按日期子文件夹+文件名时间戳匹配视频"""
+    """按日期子文件夹+文件名时间戳匹配视频
+    - 优先按 date_map 子目录找 (视频/6.16/)
+    - 子目录不存在时递归扫描 video_dir 找匹配视频 (适配任意目录结构)
+    """
+    # 方式1: date_map 子目录
     for folder, fdate in date_map.items():
         if fdate != date:
             continue
@@ -349,8 +403,23 @@ def find_video(video_dir, date_map, date, sec):
             if not m:
                 continue
             vstart = hms_to_sec(int(m.group(1)))
-            if vstart - 5 <= sec < vstart + 75:
+            # 窗口放宽: 错误点可早于视频起始最多120s (问题时间点常早于视频录制)
+            if vstart - 120 <= sec < vstart + 75:
                 return os.path.join(fdir, v), vstart
+    # 方式2: 递归扫描 video_dir 自动发现 (任意目录结构)
+    search_root = video_dir if os.path.isdir(video_dir) else os.path.dirname(video_dir)
+    if os.path.isdir(search_root):
+        for root, _, files in os.walk(search_root):
+            # 跳过 date_map 已扫过的子目录 (避免重复)
+            if os.path.basename(root) in date_map:
+                continue
+            for v in files:
+                m = re.match(r"ND\d{5}_(\d{6})_vedio", v)
+                if not m:
+                    continue
+                vstart = hms_to_sec(int(m.group(1)))
+                if vstart - 120 <= sec < vstart + 75:
+                    return os.path.join(root, v), vstart
     return None, None
 
 
@@ -977,8 +1046,15 @@ def main():
     dirs = setup_dirs(cfg["base_dir"])
     log("初始化", f"输出目录: {dirs['root']}")
 
-    # 读xlsx
+    # 读xlsx (自动发现: 固定名不存在时找任意 .xlsx)
     xlsx_path = os.path.join(cfg["base_dir"], cfg["xlsx"])
+    if not os.path.exists(xlsx_path):
+        # 自动检测 base_dir 下任意 xlsx
+        for f in os.listdir(cfg["base_dir"]):
+            if f.lower().endswith(".xlsx"):
+                xlsx_path = os.path.join(cfg["base_dir"], f)
+                log("初始化", f"自动检测问题表: {f}")
+                break
     wb = openpyxl.load_workbook(xlsx_path, data_only=True)
     ws = wb["V1.1.6测试问题"]
     rows = list(ws.iter_rows(values_only=True))

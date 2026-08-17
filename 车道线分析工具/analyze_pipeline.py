@@ -829,16 +829,54 @@ def generate_md(result, lane_series, width_series, video_summary, title):
 
 def main():
     ap = argparse.ArgumentParser(description="车道线异常智能归因 - 标准分析流水线")
-    ap.add_argument("--csv", required=True, help="车道线感知CSV文件路径")
-    ap.add_argument("--ts", default=None, help="行车视频TS文件路径(可选)")
+    ap.add_argument("--csv", default=None, help="车道线感知CSV文件路径(不传则自动检测当前目录CSV)")
+    ap.add_argument("--ts", default=None, help="行车视频TS文件路径(不传则自动匹配对应视频)")
     ap.add_argument("--out", default=None, help="输出目录(默认: CSV同目录下 车道线分析_<日期>)")
     ap.add_argument("--title", default="车道线异常智能归因分析报告", help="报告标题")
     args = ap.parse_args()
 
-    csv_path = os.path.abspath(args.csv)
-    if not os.path.exists(csv_path):
+    # 自动检测 CSV: 不传 --csv 时找当前目录/脚本目录下的 CSV
+    csv_path = None
+    if args.csv:
+        csv_path = os.path.abspath(args.csv)
+    else:
+        for cand_dir in (os.getcwd(), os.path.dirname(os.path.abspath(__file__))):
+            if not os.path.isdir(cand_dir):
+                continue
+            csvs = sorted(f for f in os.listdir(cand_dir) if f.lower().endswith(".csv"))
+            if csvs:
+                csv_path = os.path.join(cand_dir, csvs[0])
+                print(f"📂 自动检测CSV: {csvs[0]}")
+                break
+    if not csv_path or not os.path.exists(csv_path):
         print(f"❌ CSV文件不存在: {csv_path}")
         sys.exit(1)
+
+    # 自动匹配视频: 不传 --ts 时找同目录/子目录的 TS (文件名时间戳匹配CSV起始)
+    ts_path = None
+    if args.ts:
+        ts_path = os.path.abspath(args.ts)
+    else:
+        csv_name = os.path.basename(csv_path)
+        import re as _re
+        m = _re.search(r"(\d{2})-(\d{2})-(\d{2})", csv_name)
+        if m:
+            csv_hms = f"{m.group(1)}{m.group(2)}{m.group(3)}"
+            for cand_dir in (os.path.dirname(csv_path), os.getcwd()):
+                if not os.path.isdir(cand_dir):
+                    continue
+                for root, _, files in os.walk(cand_dir):
+                    for f in files:
+                        if f.lower().endswith((".ts", ".mp4", ".avi")):
+                            fm = _re.search(r"_(\d{6})_", f)
+                            if fm and fm.group(1) >= csv_hms[:6] and int(fm.group(1)[:2]) == int(csv_hms[:2]):
+                                ts_path = os.path.join(root, f)
+                                print(f"📂 自动匹配视频: {f}")
+                                break
+                    if ts_path:
+                        break
+                if ts_path:
+                    break
 
     out_dir = args.out or os.path.join(os.path.dirname(csv_path), "车道线分析_" + datetime.date.today().strftime("%Y%m%d"))
     os.makedirs(out_dir, exist_ok=True)
@@ -848,8 +886,8 @@ def main():
     print(f"   ✓ {result['total_rows']}行, {len(result['lanes'])}条车道线, 异常: 缺失{len(result['missing'])} 抖动{len(result['jitter'])} 宽度{len(result['width'])}")
 
     video_summary = None
-    if args.ts:
-        ts_path = os.path.abspath(args.ts)
+    if ts_path:
+        ts_path = os.path.abspath(ts_path)
         print(f"🎥 [2/4] 分析视频: {ts_path}")
         if os.path.exists(ts_path):
             video_summary, err = analyze_video(ts_path, out_dir=out_dir)
