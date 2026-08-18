@@ -37,7 +37,7 @@ import openpyxl
 # ==================== 配置区 ====================
 CONFIG = {
     # 数据路径
-    "base_dir": r"C:\Users\黄钦\Desktop\DF资料\ai 车道线分析",
+    "base_dir": os.environ.get("LANE_DEV_BASE") or r"C:\Users\dev\Desktop\DF资料\ai 车道线分析",
     "xlsx": "V1.1.6版本测试问题.xlsx",
     "csv_dir": "同类型CSV_lane_mark_camera_list_1",
     "video_dir": "视频",

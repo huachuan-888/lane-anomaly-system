@@ -62,7 +62,7 @@ def _detect_base_dir():
         return exe_dir
     if _has_xlsx(os.getcwd()):
         return os.getcwd()
-    old = r"C:\Users\黄钦\Desktop\DF资料\ai 车道线分析"
+    old = os.environ.get("LANE_DEV_BASE") or r"C:\Users\dev\Desktop\DF资料\ai 车道线分析"
     if _has_xlsx(old):
         return old
     return exe_dir

@@ -355,3 +355,13 @@ MIT
 | 全量复核 | python 车道线自动复核.py | 问题表驱动，自动检测数据目录 |
 | 单CSV分析 | python 车道线分析工具/analyze_pipeline.py | 自动检测当前目录CSV+匹配视频 |
 | Hermes技能 | skills/html-visual-report/ | AI自动生成报告 |
+
+
+---
+
+## 📚 交付文档
+
+| 文档 | 说明 |
+|------|------|
+| [docs/系统开发说明.md](docs/系统开发说明.md) | 系统开发历程、架构、五大规则、实测结果 |
+| [docs/系统部署文档.md](docs/系统部署文档.md) | 三种部署方法（exe/Python/Hermes技能）分步教程 |

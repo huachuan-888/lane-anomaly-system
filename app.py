@@ -39,8 +39,8 @@ def _find_base():
     # 3. exe 所在目录本身
     if os.path.exists(os.path.join(exe_dir, "V1.1.6版本测试问题.xlsx")):
         return exe_dir
-    # 4. 旧硬编码路径 (本机)
-    old = r"C:\Users\黄钦\Desktop\DF资料\ai 车道线分析"
+    # 4. 旧硬编码路径 (本机开发环境, 可用 LANE_DEV_BASE 覆盖)
+    old = os.environ.get("LANE_DEV_BASE") or r"C:\Users\dev\Desktop\DF资料\ai 车道线分析"
     if os.path.exists(os.path.join(old, "V1.1.6版本测试问题.xlsx")):
         return old
     # 都没找到: 提示用户 (仍返回 exe 目录, 让错误信息更友好)
@@ -320,6 +320,13 @@ def api_run_all():
         return jsonify({"ok": True, "log": buf.getvalue()[-2000:]})
     except Exception as e:
         return jsonify({"ok": False, "log": str(e)})
+
+
+@app.route("/reports/<path:filename>")
+def reports_file(filename):
+    """提供生成的报告文件 (HTML/MD) 访问"""
+    out_root = OUT_DIR
+    return send_from_directory(out_root, filename)
 
 
 if __name__ == "__main__":
